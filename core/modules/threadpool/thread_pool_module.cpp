@@ -1,7 +1,6 @@
 #include "core/modules/threadpool/thread_pool_module.h"
 
 #include "core/api/framework/exception.h"
-#include "core/api/framework/icontext.h"
 #include "core/api/framework/module_factory.h"
 
 #include <chrono>
@@ -31,13 +30,7 @@ ThreadPoolModule::ThreadPoolModule()
 {
 }
 
-ThreadPoolModule::~ThreadPoolModule()
-{
-    try {
-        destroy();
-    } catch (...) {
-    }
-}
+ThreadPoolModule::~ThreadPoolModule() = default;
 
 std::string ThreadPoolModule::moduleName() const
 {
@@ -54,17 +47,8 @@ StringList ThreadPoolModule::dependencies() const
     return StringList();
 }
 
-void ThreadPoolModule::init(IContext& ctx)
+void ThreadPoolModule::onInit()
 {
-    if (state() == ModuleState::Inited || state() == ModuleState::Started) {
-        return;
-    }
-    if (!(state() == ModuleState::Created || state() == ModuleState::Stopped || state() == ModuleState::Destroyed)) {
-        throw InvalidStateError("invalid thread pool state for init");
-    }
-
-    bindContext(ctx);
-    setState(ModuleState::Inited);
 }
 
 void ThreadPoolModule::startWorkers()
@@ -81,15 +65,8 @@ void ThreadPoolModule::startDelayThread()
     delayThread_ = std::thread(&ThreadPoolModule::delayLoop, this);
 }
 
-void ThreadPoolModule::start()
+void ThreadPoolModule::onStart()
 {
-    if (state() == ModuleState::Started) {
-        return;
-    }
-    if (!(state() == ModuleState::Inited || state() == ModuleState::Stopped)) {
-        throw InvalidStateError("invalid thread pool state for start");
-    }
-
     {
         std::lock_guard<std::mutex> lock(queueMutex_);
         acceptingTasks_ = true;
@@ -104,7 +81,6 @@ void ThreadPoolModule::start()
 
     startWorkers();
     startDelayThread();
-    setState(ModuleState::Started);
 }
 
 void ThreadPoolModule::stopDelayThread()
@@ -143,7 +119,7 @@ void ThreadPoolModule::stopWorkers()
     }
     workers_.clear();
 
-    std::queue<std::function<void()> > empty;
+    std::queue<std::function<void()>> empty;
     {
         std::lock_guard<std::mutex> lock(queueMutex_);
         tasks_.swap(empty);
@@ -152,31 +128,16 @@ void ThreadPoolModule::stopWorkers()
     idleCv_.notify_all();
 }
 
-void ThreadPoolModule::stop()
+void ThreadPoolModule::onStop()
 {
-    if (state() != ModuleState::Started) {
-        return;
-    }
-
     stopDelayThread();
     stopWorkers();
-    setState(ModuleState::Stopped);
 }
 
-void ThreadPoolModule::destroy()
+void ThreadPoolModule::onFini()
 {
-    const ModuleState current = state();
-    if (current == ModuleState::Destroyed) {
-        return;
-    }
-    if (current == ModuleState::Started) {
-        stop();
-    }
-
     stopDelayThread();
     stopWorkers();
-    clearContext();
-    setState(ModuleState::Destroyed);
 }
 
 void ThreadPoolModule::enqueueImmediate(const std::function<void()>& fn)
@@ -335,4 +296,4 @@ std::uint64_t ThreadPoolModule::nowMs()
 
 } // namespace mc
 
-MC_DECLARE_MODULE_FACTORY(mc::ThreadPoolModule, "ThreadPool");
+MC_DECLARE_MODULE_FACTORY(mc::ThreadPoolModule);

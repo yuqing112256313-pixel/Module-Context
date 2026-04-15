@@ -93,7 +93,7 @@ bool Context::loadModules(const std::string& configFilePath)
 
 void Context::init()
 {
-    moduleManager_->init();
+    moduleManager_->init(*this);
     state_ = ModuleState::Inited;
 }
 

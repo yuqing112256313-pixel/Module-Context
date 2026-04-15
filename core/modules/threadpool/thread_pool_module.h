@@ -13,26 +13,30 @@
 
 namespace mc {
 
+/**
+ * @brief 基于固定线程数的任务线程池模块，支持立即任务与延时任务。
+ */
 class ThreadPoolModule : public ModuleBase, public IThreadPool
 {
 public:
     ThreadPoolModule();
-    virtual ~ThreadPoolModule();
+    ~ThreadPoolModule() override;
 
-    virtual std::string moduleName() const;
-    virtual std::string moduleVersion() const;
-    virtual StringList dependencies() const;
+    std::string moduleName() const override;
+    std::string moduleVersion() const override;
+    StringList dependencies() const override;
 
-    virtual void init(IContext& ctx);
-    virtual void start();
-    virtual void stop();
-    virtual void destroy();
+    void post(const std::function<void()>& fn) override;
+    void postDelayed(int ms, const std::function<void()>& fn) override;
+    int activeThreadCount() const override;
+    int maxThreadCount() const override;
+    void setMaxThreadCount(int n) override;
 
-    virtual void post(const std::function<void()>& fn);
-    virtual void postDelayed(int ms, const std::function<void()>& fn);
-    virtual int activeThreadCount() const;
-    virtual int maxThreadCount() const;
-    virtual void setMaxThreadCount(int n);
+protected:
+    void onInit() override;
+    void onStart() override;
+    void onStop() override;
+    void onFini() override;
 
 private:
     struct DelayedTask
@@ -68,7 +72,7 @@ private:
     mutable std::mutex queueMutex_;
     std::condition_variable queueCv_;
     std::condition_variable idleCv_;
-    std::queue<std::function<void()> > tasks_;
+    std::queue<std::function<void()>> tasks_;
     std::vector<std::thread> workers_;
     bool acceptingTasks_;
     bool stoppingWorkers_;

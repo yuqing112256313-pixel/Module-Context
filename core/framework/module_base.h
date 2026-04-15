@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/api/framework/export.h"
+#include "core/api/framework/icontext.h"
 #include "core/api/framework/imodule.h"
 
 #include <mutex>
@@ -14,6 +15,7 @@ public:
     ModuleBase();
     ~ModuleBase() override;
 
+    std::string moduleName() const override;
     std::string moduleVersion() const override;
     StringList dependencies() const override;
     ModuleState state() const override;
