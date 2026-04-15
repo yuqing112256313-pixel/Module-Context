@@ -3,6 +3,7 @@
 #include "core/api/framework/export.h"
 #include "core/api/framework/imodule.h"
 #include "core/api/framework/imodule_manager.h"
+#include "core/framework/shared_library.h"
 
 #include <functional>
 #include <memory>
@@ -10,8 +11,6 @@
 #include <vector>
 
 namespace mc {
-
-class SharedLibrary;
 
 class MC_FRAMEWORK_API ModuleManager final : public IModuleManager
 {
@@ -22,7 +21,7 @@ public:
     bool loadModule(const std::string& name,
                     const std::string& libraryPath) override;
 
-    void init() override;
+    void init(IContext& ctx) override;
     void start() override;
     void stop() override;
     void fini() override;

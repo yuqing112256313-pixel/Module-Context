@@ -61,11 +61,11 @@ bool ModuleManager::loadModule(const std::string& name,
     return true;
 }
 
-void ModuleManager::init()
+void ModuleManager::init(IContext& ctx)
 {
     for (std::size_t i = 0; i < modules_.size(); ++i) {
         if (modules_[i].module) {
-            modules_[i].module->init();
+            modules_[i].module->init(ctx);
         }
     }
 

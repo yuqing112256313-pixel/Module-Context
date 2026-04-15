@@ -15,6 +15,11 @@ ModuleBase::~ModuleBase()
 {
 }
 
+std::string ModuleBase::moduleName() const
+{
+    return "unknown";
+}
+
 std::string ModuleBase::moduleVersion() const
 {
     return "unknown";

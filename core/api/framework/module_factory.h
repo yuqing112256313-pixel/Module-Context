@@ -13,12 +13,12 @@ static const char* const kDestroyModuleSymbol = "mcDestroyModule";
 
 } // namespace mc
 
-#define MC_DECLARE_MODULE_FACTORY(ModuleType)                              \
-    extern "C" MC_PLUGIN_EXPORT mc::IModule* mcCreateModule()              \
-    {                                                                      \
-        return new ModuleType();                                           \
-    }                                                                      \
-    extern "C" MC_PLUGIN_EXPORT void mcDestroyModule(mc::IModule* module)  \
-    {                                                                      \
-        delete module;                                                     \
+#define MC_DECLARE_MODULE_FACTORY(ModuleType) \
+    extern "C" MC_PLUGIN_EXPORT mc::IModule* mcCreateModule() \
+    { \
+        return new ModuleType(); \
+    } \
+    extern "C" MC_PLUGIN_EXPORT void mcDestroyModule(mc::IModule* module) \
+    { \
+        delete module; \
     }
