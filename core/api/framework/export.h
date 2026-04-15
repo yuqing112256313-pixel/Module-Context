@@ -16,3 +16,10 @@
         #define MC_PLUGIN_EXPORT extern "C"
     #endif
 #endif
+
+// 模块框架统一命名空间：module_context::framework
+namespace module_context {
+namespace framework {
+}
+} // namespace framework
+} // namespace module_context

@@ -1,12 +1,14 @@
 #include "core/framework/module_base.h"
 
-#include "core/api/framework/exception.h"
 #include "core/api/framework/icontext.h"
 
-namespace mc {
+#include <cassert>
+
+namespace module_context {
+namespace framework {
 
 ModuleBase::ModuleBase()
-    : ctx_(0)
+    : ctx_(nullptr)
     , state_(ModuleState::Created)
 {
 }
@@ -15,159 +17,123 @@ ModuleBase::~ModuleBase()
 {
 }
 
-std::string ModuleBase::moduleName() const
+std::string ModuleBase::ModuleName() const
 {
     return "unknown";
 }
 
-std::string ModuleBase::moduleVersion() const
+std::string ModuleBase::ModuleVersion() const
 {
     return "unknown";
 }
 
-StringList ModuleBase::dependencies() const
+ModuleState ModuleBase::State() const
 {
-    return StringList();
-}
-
-ModuleState ModuleBase::state() const
-{
-    std::lock_guard<std::recursive_mutex> lock(mutex_);
     return state_;
 }
 
-void ModuleBase::init(IContext& ctx)
+IContext& ModuleBase::Context() const
 {
-    std::lock_guard<std::recursive_mutex> lock(mutex_);
-    doInitLocked(ctx);
-}
-
-void ModuleBase::start()
-{
-    std::lock_guard<std::recursive_mutex> lock(mutex_);
-    doStartLocked();
-}
-
-void ModuleBase::stop()
-{
-    std::lock_guard<std::recursive_mutex> lock(mutex_);
-    doStopLocked();
-}
-
-void ModuleBase::fini()
-{
-    std::lock_guard<std::recursive_mutex> lock(mutex_);
-    doFiniLocked();
-}
-
-IContext& ModuleBase::context() const
-{
-    std::lock_guard<std::recursive_mutex> lock(mutex_);
-    if (!ctx_) {
-        throw InvalidStateError("module context is not bound");
-    }
+    assert(ctx_ != nullptr && "module context is not initialized");
     return *ctx_;
 }
 
-bool ModuleBase::hasContext() const
+bool ModuleBase::HasContext() const
 {
-    std::lock_guard<std::recursive_mutex> lock(mutex_);
-    return ctx_ != 0;
+    return ctx_ != nullptr;
 }
 
-void ModuleBase::onInit()
-{
-}
-
-void ModuleBase::onStart()
+void ModuleBase::OnInit()
 {
 }
 
-void ModuleBase::onStop()
+void ModuleBase::OnStart()
 {
 }
 
-void ModuleBase::onFini()
+void ModuleBase::OnStop()
 {
 }
 
-void ModuleBase::doInitLocked(IContext& ctx)
+void ModuleBase::OnFini()
 {
-    // 已完成初始化，视为幂等
-    if (state_ == ModuleState::Inited
-        || state_ == ModuleState::Started
-        || state_ == ModuleState::Stopped) {
+}
+
+bool ModuleBase::IsValidTransition(ModuleState from, ModuleState to)
+{
+    if (from == to) {
+        return false;
+    }
+
+    switch (to) {
+    case ModuleState::Inited:
+        return from == ModuleState::Created || from == ModuleState::Fini;
+    case ModuleState::Started:
+        return from == ModuleState::Inited || from == ModuleState::Stopped;
+    case ModuleState::Stopped:
+        return from == ModuleState::Started;
+    case ModuleState::Fini:
+        return from == ModuleState::Created
+               || from == ModuleState::Inited
+               || from == ModuleState::Stopped
+               || from == ModuleState::Started;
+    case ModuleState::Created:
+        return false;
+    default:
+        return false;
+    }
+}
+
+void ModuleBase::Init(IContext& ctx)
+{
+    if (!IsValidTransition(state_, ModuleState::Inited)) {
         return;
     }
-
-    if (!(state_ == ModuleState::Created || state_ == ModuleState::Fini)) {
-        throw InvalidStateError("invalid module state for init: " + moduleName());
-    }
-
-    const ModuleState previousState = state_;
-    IContext* const previousCtx = ctx_;
 
     ctx_ = &ctx;
-
-    try {
-        onInit();
-        state_ = ModuleState::Inited;
-    } catch (...) {
-        ctx_ = previousCtx;
-        state_ = previousState;
-        throw;
-    }
+    OnInit();
+    state_ = ModuleState::Inited;
 }
 
-void ModuleBase::doStartLocked()
+void ModuleBase::Start()
 {
-    if (state_ == ModuleState::Started) {
+    if (!IsValidTransition(state_, ModuleState::Started)) {
         return;
     }
 
-    if (!(state_ == ModuleState::Inited || state_ == ModuleState::Stopped)) {
-        throw InvalidStateError("invalid module state for start: " + moduleName());
-    }
-
-    onStart();
+    OnStart();
     state_ = ModuleState::Started;
 }
 
-void ModuleBase::doStopLocked()
+void ModuleBase::Stop()
 {
-    if (state_ != ModuleState::Started) {
-        // 非 Started 状态下 stop 视为幂等
+    if (!IsValidTransition(state_, ModuleState::Stopped)) {
         return;
     }
 
-    onStop();
+    OnStop();
     state_ = ModuleState::Stopped;
 }
 
-void ModuleBase::doFiniLocked()
+void ModuleBase::Fini()
 {
-    if (state_ == ModuleState::Fini) {
+    if (!IsValidTransition(state_, ModuleState::Fini)) {
         return;
     }
 
     if (state_ == ModuleState::Started) {
-        doStopLocked();
+        OnStop();
     }
 
-    if (state_ == ModuleState::Created) {
-        ctx_ = 0;
-        state_ = ModuleState::Fini;
-        return;
+    if (state_ == ModuleState::Started
+        || state_ == ModuleState::Stopped
+        || state_ == ModuleState::Inited) {
+        OnFini();
     }
 
-    if (!(state_ == ModuleState::Inited || state_ == ModuleState::Stopped)) {
-        throw InvalidStateError("invalid module state for fini: " + moduleName());
-    }
-
-    onFini();
-
-    ctx_ = 0;
+    ctx_ = nullptr;
     state_ = ModuleState::Fini;
 }
 
-} // namespace mc
+} // namespace framework
+} // namespace module_context

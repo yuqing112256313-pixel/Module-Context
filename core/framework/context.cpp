@@ -2,127 +2,57 @@
 
 #include "core/framework/module_manager.h"
 
-#include <fstream>
-#include <string>
+namespace module_context {
+namespace framework {
 
-namespace mc {
-
-namespace {
-
-std::string trim(const std::string& value)
+IContext& IContext::Instance()
 {
-    std::size_t begin = 0;
-    while (begin < value.size()
-           && (value[begin] == ' '
-               || value[begin] == '\t'
-               || value[begin] == '\r'
-               || value[begin] == '\n')) {
-        ++begin;
-    }
-
-    std::size_t end = value.size();
-    while (end > begin
-           && (value[end - 1] == ' '
-               || value[end - 1] == '\t'
-               || value[end - 1] == '\r'
-               || value[end - 1] == '\n')) {
-        --end;
-    }
-
-    return value.substr(begin, end - begin);
+    static Context ctx;
+    return ctx;
 }
-
-bool parseLine(const std::string& line,
-               std::string& name,
-               std::string& libraryPath)
-{
-    const std::size_t pos = line.find('=');
-    if (pos == std::string::npos) {
-        return false;
-    }
-
-    name = trim(line.substr(0, pos));
-    libraryPath = trim(line.substr(pos + 1));
-
-    return !name.empty() && !libraryPath.empty();
-}
-
-} // namespace
 
 Context::Context()
     : moduleManager_(new ModuleManager())
-    , state_(ModuleState::Created)
 {
 }
 
 Context::~Context()
 {
-    if (state_ != ModuleState::Fini) {
-        fini();
+    Fini();
+}
+
+void Context::Init()
+{
+    if (moduleManager_) {
+        moduleManager_->Init(*this);
     }
 }
 
-bool Context::loadModules(const std::string& configFilePath)
+void Context::Start()
 {
-    std::ifstream ifs(configFilePath.c_str());
-    if (!ifs.is_open()) {
-        return false;
+    if (moduleManager_) {
+        moduleManager_->Start();
     }
+}
 
-    std::string line;
-    while (std::getline(ifs, line)) {
-        line = trim(line);
-
-        if (line.empty() || line[0] == '#') {
-            continue;
-        }
-
-        std::string name;
-        std::string libraryPath;
-        if (!parseLine(line, name, libraryPath)) {
-            return false;
-        }
-
-        if (!moduleManager_->loadModule(name, libraryPath)) {
-            return false;
-        }
+void Context::Stop()
+{
+    if (moduleManager_) {
+        moduleManager_->Stop();
     }
-
-    return true;
 }
 
-void Context::init()
+void Context::Fini()
 {
-    moduleManager_->init(*this);
-    state_ = ModuleState::Inited;
+    if (moduleManager_) {
+        moduleManager_->Fini();
+    }
 }
 
-void Context::start()
-{
-    moduleManager_->start();
-    state_ = ModuleState::Started;
-}
-
-void Context::stop()
-{
-    moduleManager_->stop();
-    state_ = ModuleState::Stopped;
-}
-
-void Context::fini()
-{
-    moduleManager_->fini();
-    state_ = ModuleState::Fini;
-}
-
-ModuleState Context::state() const
-{
-    return state_;
-}
-
-IModuleManager* Context::moduleMgr()
+IModuleManager* Context::ModuleManager()
 {
     return moduleManager_.get();
 }
 
-} // namespace mc
+} // namespace framework
+} // namespace module_context

@@ -6,7 +6,8 @@
     #include <dlfcn.h>
 #endif
 
-namespace mc {
+namespace module_context {
+namespace framework {
 
 SharedLibrary::SharedLibrary(const std::string& path)
     : path_(path)
@@ -75,4 +76,5 @@ void* SharedLibrary::resolveRaw(const char* symbolName) const
 #endif
 }
 
-} // namespace mc
+} // namespace framework
+} // namespace module_context

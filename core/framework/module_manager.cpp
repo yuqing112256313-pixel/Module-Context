@@ -3,31 +3,100 @@
 #include "core/api/framework/module_factory.h"
 #include "core/framework/shared_library.h"
 
-namespace mc {
+#include <fstream>
+
+namespace module_context {
+namespace framework {
+
+namespace detail {
+
+std::string TrimValue(const std::string& value)
+{
+    std::size_t begin = 0;
+    while (begin < value.size()
+           && (value[begin] == ' '
+               || value[begin] == '\t'
+               || value[begin] == '\r'
+               || value[begin] == '\n')) {
+        ++begin;
+    }
+
+    std::size_t end = value.size();
+    while (end > begin
+           && (value[end - 1] == ' '
+               || value[end - 1] == '\t'
+               || value[end - 1] == '\r'
+               || value[end - 1] == '\n')) {
+        --end;
+    }
+
+    return value.substr(begin, end - begin);
+}
+
+bool ParseLine(const std::string& line,
+               std::string& name,
+               std::string& libraryPath)
+{
+    const std::size_t pos = line.find('=');
+    if (pos == std::string::npos) {
+        return false;
+    }
+
+    name = TrimValue(line.substr(0, pos));
+    libraryPath = TrimValue(line.substr(pos + 1));
+
+    return !name.empty() && !libraryPath.empty();
+}
+
+} // namespace detail
 
 ModuleManager::ModuleManager()
-    : state_(ModuleState::Created)
 {
 }
 
 ModuleManager::~ModuleManager()
 {
-    if (state_ != ModuleState::Fini) {
-        fini();
-    }
+    Fini();
 }
 
-bool ModuleManager::loadModule(const std::string& name,
-                               const std::string& libraryPath)
+bool ModuleManager::LoadModules(const std::string& configFilePath)
+{
+    std::ifstream ifs(configFilePath.c_str());
+    if (!ifs.is_open()) {
+        return false;
+    }
+
+    std::string line;
+    while (std::getline(ifs, line)) {
+        line = detail::TrimValue(line);
+
+        if (line.empty() || line[0] == '#') {
+            continue;
+        }
+
+        std::string name;
+        std::string libraryPath;
+        if (!detail::ParseLine(line, name, libraryPath)) {
+            return false;
+        }
+
+        if (!LoadModule(name, libraryPath)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool ModuleManager::LoadModule(const std::string& name,
+                              const std::string& libraryPath)
 {
     if (name.empty() || libraryPath.empty()) {
         return false;
     }
 
-    for (std::size_t i = 0; i < modules_.size(); ++i) {
-        if (modules_[i].name == name) {
-            return false;
-        }
+    if (moduleIndexByName_.find(name) != moduleIndexByName_.end()) {
+        return false;
     }
 
     std::unique_ptr<SharedLibrary> library(new SharedLibrary(libraryPath));
@@ -37,7 +106,6 @@ bool ModuleManager::loadModule(const std::string& name,
 
     CreateModuleFn createFn = library->resolve<CreateModuleFn>(kCreateModuleSymbol);
     DestroyModuleFn destroyFn = library->resolve<DestroyModuleFn>(kDestroyModuleSymbol);
-
     if (!createFn || !destroyFn) {
         return false;
     }
@@ -58,88 +126,55 @@ bool ModuleManager::loadModule(const std::string& name,
     });
 
     modules_.push_back(std::move(record));
+    moduleIndexByName_.emplace(name, modules_.size() - 1);
     return true;
 }
 
-void ModuleManager::init(IContext& ctx)
+void ModuleManager::Init(IContext& ctx)
 {
-    for (std::size_t i = 0; i < modules_.size(); ++i) {
-        if (modules_[i].module) {
-            modules_[i].module->init(ctx);
+    for (auto& moduleRecord : modules_) {
+        if (moduleRecord.module) {
+            moduleRecord.module->Init(ctx);
         }
     }
-
-    state_ = ModuleState::Inited;
 }
 
-void ModuleManager::start()
+void ModuleManager::Start()
 {
-    for (std::size_t i = 0; i < modules_.size(); ++i) {
-        if (modules_[i].module) {
-            modules_[i].module->start();
+    for (auto& moduleRecord : modules_) {
+        if (moduleRecord.module) {
+            moduleRecord.module->Start();
         }
     }
-
-    state_ = ModuleState::Started;
 }
 
-void ModuleManager::stop()
+void ModuleManager::Stop()
 {
-    for (std::size_t i = modules_.size(); i > 0; --i) {
-        if (modules_[i - 1].module) {
-            modules_[i - 1].module->stop();
+    for (auto it = modules_.rbegin(); it != modules_.rend(); ++it) {
+        if (it->module) {
+            it->module->Stop();
         }
     }
-
-    state_ = ModuleState::Stopped;
 }
 
-void ModuleManager::fini()
+void ModuleManager::Fini()
 {
-    if (state_ == ModuleState::Started) {
-        stop();
-    }
-
-    if (state_ == ModuleState::Created) {
-        state_ = ModuleState::Fini;
-        return;
-    }
-
-    for (std::size_t i = modules_.size(); i > 0; --i) {
-        if (modules_[i - 1].module) {
-            modules_[i - 1].module->fini();
+    for (auto it = modules_.rbegin(); it != modules_.rend(); ++it) {
+        if (it->module) {
+            it->module->Fini();
         }
     }
-
-    state_ = ModuleState::Fini;
 }
 
-ModuleState ModuleManager::state() const
+IModule* ModuleManager::Module(const std::string& name)
 {
-    return state_;
-}
-
-IModule* ModuleManager::module(const std::string& name)
-{
-    for (std::size_t i = 0; i < modules_.size(); ++i) {
-        if (modules_[i].name == name) {
-            return modules_[i].module.get();
-        }
+    const auto it = moduleIndexByName_.find(name);
+    if (it == moduleIndexByName_.end()) {
+        return nullptr;
     }
 
-    return nullptr;
+    return modules_[it->second].module.get();
 }
 
-std::vector<std::string> ModuleManager::moduleNames() const
-{
-    std::vector<std::string> names;
-    names.reserve(modules_.size());
-
-    for (std::size_t i = 0; i < modules_.size(); ++i) {
-        names.push_back(modules_[i].name);
-    }
-
-    return names;
-}
-
-} // namespace mc
+} // namespace framework
+} // namespace module_context
