@@ -8,25 +8,31 @@ jobs:
   build-windows:
     name: Windows build and artifacts
     runs-on: windows-latest
+    env:
+      BUILD_DIR: ${{ github.workspace }}/build
+      STAGE_DIR: ${{ github.workspace }}/stage
+      STAGE_DEBUG_DIR: ${{ github.workspace }}/stage-debug
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_DEBUG_POSTFIX=d
+        run: |
+          cmake -E make_directory "$env:BUILD_DIR"
+          cmake -S . -B "$env:BUILD_DIR" -DCMAKE_DEBUG_POSTFIX=d
 
       - name: Build (Release)
-        run: cmake --build build --config Release --parallel
+        run: cmake --build "$env:BUILD_DIR" --config Release --parallel
 
       - name: Install Release to staging
-        run: cmake --install build --config Release --prefix stage
+        run: cmake --install "$env:BUILD_DIR" --config Release --prefix "$env:STAGE_DIR"
 
       - name: Build (Debug)
-        run: cmake --build build --config Debug --parallel
+        run: cmake --build "$env:BUILD_DIR" --config Debug --parallel
 
       - name: Install Debug to staging
-        run: cmake --install build --config Debug --prefix stage-debug
+        run: cmake --install "$env:BUILD_DIR" --config Debug --prefix "$env:STAGE_DEBUG_DIR"
 
       - name: Collect Windows artifacts
         shell: pwsh
@@ -35,13 +41,13 @@ jobs:
           New-Item -ItemType Directory -Force -Path artifacts/lib | Out-Null
           New-Item -ItemType Directory -Force -Path artifacts/bin | Out-Null
 
-          Get-ChildItem -Path "stage/include/core/api/framework" -Recurse -File -Filter *.h |
+          Get-ChildItem -Path "$env:STAGE_DIR/include/core/api/framework" -Recurse -File -Filter *.h |
             Copy-Item -Destination "artifacts/include/core/api/framework" -Force
 
-          Get-ChildItem -Path stage -Recurse -File -Filter "mc_core_framework*.lib" |
+          Get-ChildItem -Path $env:STAGE_DIR -Recurse -File -Filter "mc_core_framework*.lib" |
             Copy-Item -Destination "artifacts/lib" -Force
 
-          Get-ChildItem -Path stage -Recurse -File -Filter "mc_core_framework*.dll" |
+          Get-ChildItem -Path $env:STAGE_DIR -Recurse -File -Filter "mc_core_framework*.dll" |
             Copy-Item -Destination "artifacts/bin" -Force
 
       - name: Upload Windows artifacts (.h/.lib/.dll)
@@ -58,13 +64,13 @@ jobs:
           New-Item -ItemType Directory -Force -Path artifacts-debug/lib | Out-Null
           New-Item -ItemType Directory -Force -Path artifacts-debug/bin | Out-Null
 
-          Get-ChildItem -Path "stage-debug/include/core/api/framework" -Recurse -File -Filter *.h |
+          Get-ChildItem -Path "$env:STAGE_DEBUG_DIR/include/core/api/framework" -Recurse -File -Filter *.h |
             Copy-Item -Destination "artifacts-debug/include/core/api/framework" -Force
 
-          Get-ChildItem -Path stage-debug -Recurse -File -Filter "mc_core_framework*d.lib" |
+          Get-ChildItem -Path $env:STAGE_DEBUG_DIR -Recurse -File -Filter "mc_core_framework*d.lib" |
             Copy-Item -Destination "artifacts-debug/lib" -Force
 
-          Get-ChildItem -Path stage-debug -Recurse -File -Filter "mc_core_framework*d.dll" |
+          Get-ChildItem -Path $env:STAGE_DEBUG_DIR -Recurse -File -Filter "mc_core_framework*d.dll" |
             Copy-Item -Destination "artifacts-debug/bin" -Force
 
       - name: Upload Windows debug artifacts (.h/.lib/.dll)
