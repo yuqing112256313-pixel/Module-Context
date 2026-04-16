@@ -13,14 +13,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure (Release)
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_DEBUG_POSTFIX=d
 
       - name: Build (Release)
         run: cmake --build build --config Release --parallel
 
-      - name: Install to staging
+      - name: Install Release to staging
         run: cmake --install build --config Release --prefix stage
+
+      - name: Build (Debug)
+        run: cmake --build build --config Debug --parallel
+
+      - name: Install Debug to staging
+        run: cmake --install build --config Debug --prefix stage-debug
 
       - name: Collect Windows artifacts
         shell: pwsh
@@ -43,4 +49,27 @@ jobs:
         with:
           name: windows-artifacts
           path: artifacts
+          if-no-files-found: error
+
+      - name: Collect Windows debug artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts-debug/include/core/api/framework | Out-Null
+          New-Item -ItemType Directory -Force -Path artifacts-debug/lib | Out-Null
+          New-Item -ItemType Directory -Force -Path artifacts-debug/bin | Out-Null
+
+          Get-ChildItem -Path "stage-debug/include/core/api/framework" -Recurse -File -Filter *.h |
+            Copy-Item -Destination "artifacts-debug/include/core/api/framework" -Force
+
+          Get-ChildItem -Path stage-debug -Recurse -File -Filter "mc_core_framework*d.lib" |
+            Copy-Item -Destination "artifacts-debug/lib" -Force
+
+          Get-ChildItem -Path stage-debug -Recurse -File -Filter "mc_core_framework*d.dll" |
+            Copy-Item -Destination "artifacts-debug/bin" -Force
+
+      - name: Upload Windows debug artifacts (.h/.lib/.dll)
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifacts-debug
+          path: artifacts-debug
           if-no-files-found: error
