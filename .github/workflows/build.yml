@@ -1,0 +1,45 @@
+name: CMake CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-windows:
+    name: Windows build and artifacts
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure (Release)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build (Release)
+        run: cmake --build build --config Release --parallel
+
+      - name: Install to staging
+        run: cmake --install build --config Release --prefix stage
+
+      - name: Collect Windows artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts/include | Out-Null
+          New-Item -ItemType Directory -Force -Path artifacts/lib | Out-Null
+          New-Item -ItemType Directory -Force -Path artifacts/bin | Out-Null
+
+          Copy-Item -Path "stage/include/**/*.h" -Destination "artifacts/include" -Recurse -Force
+
+          Get-ChildItem -Path stage -Recurse -File -Include *.lib |
+            Copy-Item -Destination "artifacts/lib" -Force
+
+          Get-ChildItem -Path stage -Recurse -File -Include *.dll |
+            Copy-Item -Destination "artifacts/bin" -Force
+
+      - name: Upload Windows artifacts (.h/.lib/.dll)
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifacts
+          path: artifacts
+          if-no-files-found: error
