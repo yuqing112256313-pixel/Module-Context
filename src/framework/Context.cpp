@@ -1,6 +1,6 @@
-#include "core/framework/Context.h"
+#include "framework/Context.h"
 
-#include "core/framework/ModuleManager.h"
+#include "framework/ModuleManager.h"
 
 #include "foundation/base/ErrorCode.h"
 #include "foundation/base/Result.h"

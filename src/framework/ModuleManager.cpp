@@ -1,4 +1,4 @@
-#include "core/framework/ModuleManager.h"
+#include "framework/ModuleManager.h"
 
 #include "foundation/base/ErrorCode.h"
 #include "foundation/config/ConfigReader.h"
