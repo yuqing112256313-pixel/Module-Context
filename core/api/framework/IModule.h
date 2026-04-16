@@ -1,7 +1,7 @@
 #pragma once
 
-#include "core/api/framework/export.h"
-#include "core/api/framework/module_state.h"
+#include "core/api/framework/Export.h"
+#include "core/api/framework/ModuleState.h"
 
 #include "foundation/base/Result.h"
 

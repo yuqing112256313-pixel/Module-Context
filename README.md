@@ -42,7 +42,7 @@ cmake -S . -B build -DMC_FOUNDATION_SOURCE_DIR=/path/to/Foundation
 ## Usage
 
 ```cpp
-#include "core/framework/context.h"
+#include "core/framework/Context.h"
 #include "foundation/base/ErrorCode.h"
 
 module_context::framework::Context context;
