@@ -14,13 +14,22 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure (Release)
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release
 
       - name: Build (Release)
-        run: cmake --build build --config Release --parallel
+        run: cmake --build build-release --parallel
 
-      - name: Install to staging
-        run: cmake --install build --config Release --prefix stage
+      - name: Install Release to staging
+        run: cmake --install build-release --prefix stage
+
+      - name: Configure (Debug)
+        run: cmake -S . -B build-debug -DCMAKE_BUILD_TYPE=Debug -DCMAKE_DEBUG_POSTFIX=d
+
+      - name: Build (Debug)
+        run: cmake --build build-debug --parallel
+
+      - name: Install Debug to staging
+        run: cmake --install build-debug --prefix stage-debug
 
       - name: Collect Windows artifacts
         shell: pwsh
@@ -43,4 +52,27 @@ jobs:
         with:
           name: windows-artifacts
           path: artifacts
+          if-no-files-found: error
+
+      - name: Collect Windows debug artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts-debug/include/core/api/framework | Out-Null
+          New-Item -ItemType Directory -Force -Path artifacts-debug/lib | Out-Null
+          New-Item -ItemType Directory -Force -Path artifacts-debug/bin | Out-Null
+
+          Get-ChildItem -Path "stage-debug/include/core/api/framework" -Recurse -File -Filter *.h |
+            Copy-Item -Destination "artifacts-debug/include/core/api/framework" -Force
+
+          Get-ChildItem -Path stage-debug -Recurse -File -Filter "mc_core_framework*d.lib" |
+            Copy-Item -Destination "artifacts-debug/lib" -Force
+
+          Get-ChildItem -Path stage-debug -Recurse -File -Filter "mc_core_framework*d.dll" |
+            Copy-Item -Destination "artifacts-debug/bin" -Force
+
+      - name: Upload Windows debug artifacts (.h/.lib/.dll)
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifacts-debug
+          path: artifacts-debug
           if-no-files-found: error
