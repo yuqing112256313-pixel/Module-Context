@@ -1,8 +1,7 @@
 #pragma once
 
-#include "core/api/framework/export.h"
-#include "core/api/framework/imodule.h"
-#include "core/api/framework/imodule_manager.h"
+#include "core/api/framework/IModule.h"
+#include "core/api/framework/IModuleManager.h"
 
 #include "foundation/base/NonCopyable.h"
 #include "foundation/base/Result.h"
@@ -15,7 +14,7 @@
 namespace module_context {
 namespace framework {
 
-class MC_FRAMEWORK_API ModuleManager final
+class ModuleManager final
     : public IModuleManager,
       private foundation::base::NonCopyable {
 public:

@@ -1,4 +1,4 @@
-#include "core/framework/module_manager.h"
+#include "core/framework/ModuleManager.h"
 
 #include "foundation/base/ErrorCode.h"
 #include "foundation/config/ConfigReader.h"
@@ -6,7 +6,7 @@
 #include "foundation/base/Result.h"
 #include "foundation/filesystem/PathUtils.h"
 
-#include "core/api/framework/module_factory.h"
+#include "core/api/framework/ModuleFactory.h"
 
 #include <cstddef>
 #include <cstdint>

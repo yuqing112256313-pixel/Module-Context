@@ -25,16 +25,17 @@ jobs:
       - name: Collect Windows artifacts
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path artifacts/include | Out-Null
+          New-Item -ItemType Directory -Force -Path artifacts/include/core/api/framework | Out-Null
           New-Item -ItemType Directory -Force -Path artifacts/lib | Out-Null
           New-Item -ItemType Directory -Force -Path artifacts/bin | Out-Null
 
-          Copy-Item -Path "stage/include/**/*.h" -Destination "artifacts/include" -Recurse -Force
+          Get-ChildItem -Path "stage/include/core/api/framework" -Recurse -File -Filter *.h |
+            Copy-Item -Destination "artifacts/include/core/api/framework" -Force
 
-          Get-ChildItem -Path stage -Recurse -File -Include *.lib |
+          Get-ChildItem -Path stage -Recurse -File -Filter "mc_core_framework*.lib" |
             Copy-Item -Destination "artifacts/lib" -Force
 
-          Get-ChildItem -Path stage -Recurse -File -Include *.dll |
+          Get-ChildItem -Path stage -Recurse -File -Filter "mc_core_framework*.dll" |
             Copy-Item -Destination "artifacts/bin" -Force
 
       - name: Upload Windows artifacts (.h/.lib/.dll)

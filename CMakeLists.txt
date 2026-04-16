@@ -138,9 +138,18 @@ if(NOT TARGET foundation::foundation)
 endif()
 
 add_library(mc_core_framework SHARED
-    core/framework/context.cpp
-    core/framework/module_base.cpp
-    core/framework/module_manager.cpp
+    core/framework/Context.cpp
+    core/framework/ModuleBase.cpp
+    core/framework/ModuleManager.cpp
+)
+
+set(MC_CORE_FRAMEWORK_PUBLIC_HEADERS
+    core/api/framework/Export.h
+    core/api/framework/IContext.h
+    core/api/framework/IModule.h
+    core/api/framework/IModuleManager.h
+    core/api/framework/ModuleFactory.h
+    core/api/framework/ModuleState.h
 )
 
 target_compile_definitions(mc_core_framework
@@ -175,11 +184,8 @@ install(TARGETS mc_core_framework
 )
 
 install(
-    DIRECTORY
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/api
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/framework
+    FILES
+        ${MC_CORE_FRAMEWORK_PUBLIC_HEADERS}
     DESTINATION
-        ${CMAKE_INSTALL_INCLUDEDIR}/core
-    FILES_MATCHING
-        PATTERN "*.h"
+        ${CMAKE_INSTALL_INCLUDEDIR}/core/api/framework
 )

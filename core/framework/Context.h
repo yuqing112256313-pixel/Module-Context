@@ -1,7 +1,6 @@
 #pragma once
 
-#include "core/api/framework/export.h"
-#include "core/api/framework/icontext.h"
+#include "core/api/framework/IContext.h"
 
 #include "foundation/base/NonCopyable.h"
 #include "foundation/base/Result.h"
@@ -11,7 +10,7 @@
 namespace module_context {
 namespace framework {
 
-class MC_FRAMEWORK_API Context final
+class Context final
     : public IContext,
       private foundation::base::NonCopyable {
 public:
