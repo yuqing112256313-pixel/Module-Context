@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "modules": [
+    {
+      "name": "MyModule",
+      "library_path": "./plugins/MyModule.dll"
+    },
+    {
+      "name": "OtherModule",
+      "library_path": "./plugins/OtherModule.dll"
+    }
+  ]
+}
