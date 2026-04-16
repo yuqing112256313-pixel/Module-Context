@@ -1,6 +1,5 @@
 #pragma once
 
-#include "core/api/framework/Export.h"
 #include "core/api/framework/IContext.h"
 #include "core/api/framework/IModule.h"
 
@@ -10,7 +9,7 @@
 namespace module_context {
 namespace framework {
 
-class MC_FRAMEWORK_API ModuleBase
+class ModuleBase
     : public virtual IModule,
       private foundation::base::NonCopyable {
 public:
