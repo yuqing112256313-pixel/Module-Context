@@ -18,6 +18,7 @@ class ModuleManager final
     : public IModuleManager,
       private foundation::base::NonCopyable {
 public:
+    /// 默认实现：负责插件加载、生命周期转发与模块查询。
     ModuleManager();
     ~ModuleManager() override;
 
@@ -39,8 +40,10 @@ private:
     typedef foundation::plugin::PluginLoader<IModule> ModuleLoader;
     typedef ModuleLoader::PluginHandle ModuleHandle;
 
+    /// 打开动态库并创建模块句柄（已校验插件 API 版本）。
     foundation::base::Result<ModuleHandle> CreateModuleHandle(
         const std::string& normalized_library_path);
+    /// 将模块保存到映射表，并记录生命周期执行顺序。
     void StoreLoadedModule(
         const std::string& name,
         ModuleHandle module);

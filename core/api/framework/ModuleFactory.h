@@ -6,6 +6,7 @@
 namespace module_context {
 namespace framework {
 
+/// 插件 API 版本号。宿主加载时会校验版本一致性。
 static const int kModulePluginApiVersion = 1;
 
 // This header intentionally remains a tiny C-ABI export shim instead of
@@ -13,6 +14,12 @@ static const int kModulePluginApiVersion = 1;
 // a shared-library boundary through fixed exported symbols, while Factory is an
 // in-process registry of C++ creators.
 
+/**
+ * @brief 声明插件工厂导出符号（带自定义 API 版本）。
+ *
+ * @param ModuleType 具体模块类型（需实现 IModule）。
+ * @param ApiVersion 插件 API 版本号。
+ */
 #define MC_DECLARE_MODULE_FACTORY_WITH_API_VERSION(ModuleType, ApiVersion)          \
     extern "C" MC_PLUGIN_EXPORT int GetPluginApiVersion() {                         \
         return (ApiVersion);                                                        \
@@ -26,6 +33,9 @@ static const int kModulePluginApiVersion = 1;
         delete module;                                                              \
     }
 
+/**
+ * @brief 声明插件工厂导出符号（使用默认 API 版本）。
+ */
 #define MC_DECLARE_MODULE_FACTORY(ModuleType)                                       \
     MC_DECLARE_MODULE_FACTORY_WITH_API_VERSION(                                     \
         ModuleType,                                                                 \
