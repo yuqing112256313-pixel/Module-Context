@@ -14,7 +14,7 @@ IContext& IContext::Instance() {
 }
 
 Context::Context()
-    : module_manager_(new ModuleManager()) {
+    : module_manager_(new module_context::framework::ModuleManager()) {
 }
 
 Context::~Context() {
