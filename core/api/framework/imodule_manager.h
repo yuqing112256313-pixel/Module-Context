@@ -3,6 +3,9 @@
 #include "core/api/framework/export.h"
 #include "core/api/framework/imodule.h"
 
+#include "foundation/base/ErrorCode.h"
+#include "foundation/base/Result.h"
+
 #include <string>
 
 namespace module_context {
@@ -10,48 +13,43 @@ namespace framework {
 
 class IContext;
 
-/// @brief 模块管理器接口。
-class MC_FRAMEWORK_API IModuleManager
-{
+class MC_FRAMEWORK_API IModuleManager {
 public:
     virtual ~IModuleManager() {}
 
-    /// @brief 从配置文件批量加载模块。
-    /// @param configFilePath 配置文件路径，每行格式为 `name=library_path`。
-    /// @return 全部加载成功返回 true，遇到失败返回 false。
-    virtual bool LoadModules(const std::string& configFilePath) = 0;
+    virtual foundation::base::Result<void> LoadModules(
+        const std::string& config_file_path) = 0;
+    virtual foundation::base::Result<void> LoadModule(
+        const std::string& name,
+        const std::string& library_path) = 0;
 
-    /// @brief 加载单个模块。
-    /// @param name 模块名称。
-    /// @param libraryPath 模块动态库路径。
-    /// @return 加载成功返回 true，失败返回 false。
-    virtual bool LoadModule(const std::string& name,
-                           const std::string& libraryPath) = 0;
+    virtual foundation::base::Result<void> Init(IContext& ctx) = 0;
+    virtual foundation::base::Result<void> Start() = 0;
+    virtual foundation::base::Result<void> Stop() = 0;
+    virtual foundation::base::Result<void> Fini() = 0;
 
-    /// @brief 初始化所有已加载模块。
-    /// @param ctx 传入应用上下文。
-    virtual void Init(IContext& ctx) = 0;
+    virtual foundation::base::Result<IModule*> Module(
+        const std::string& name) = 0;
 
-    /// @brief 启动所有已加载模块。
-    virtual void Start() = 0;
+    template <typename T>
+    foundation::base::Result<T*> ModuleAs(const std::string& name) {
+        foundation::base::Result<IModule*> module = Module(name);
+        if (!module.IsOk()) {
+            return foundation::base::Result<T*>(
+                module.GetError(),
+                module.GetMessage());
+        }
 
-    /// @brief 停止所有已加载模块。
-    virtual void Stop() = 0;
+        T* typed_module = dynamic_cast<T*>(module.Value());
+        if (typed_module == NULL) {
+            return foundation::base::Result<T*>(
+                foundation::base::ErrorCode::kInvalidState,
+                "Module type cast failed");
+        }
 
-    /// @brief 按顺序销毁所有模块并清理状态。
-    virtual void Fini() = 0;
-
-    /// @brief 根据模块名称获取模块实例。
-    /// @param name 模块名称。
-    /// @return 找不到返回 nullptr。
-    virtual IModule* Module(const std::string& name) = 0;
-
-    template<typename T>
-    T* ModuleAs(const std::string& name)
-    {
-        return dynamic_cast<T*>(Module(name));
+        return foundation::base::Result<T*>(typed_module);
     }
 };
 
-} // namespace framework
-} // namespace module_context
+}  // namespace framework
+}  // namespace module_context

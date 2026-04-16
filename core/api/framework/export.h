@@ -1,25 +1,27 @@
 #pragma once
 
-#if defined(_WIN32) || defined(__CYGWIN__)
-    #if defined(MC_FRAMEWORK_EXPORTS)
-        #define MC_FRAMEWORK_API __declspec(dllexport)
+#include "foundation/base/Platform.h"
+
+#if defined(MC_FRAMEWORK_SHARED_LIBRARY)
+    #if FOUNDATION_PLATFORM_WINDOWS
+        #if defined(MC_FRAMEWORK_BUILDING_LIBRARY)
+            #define MC_FRAMEWORK_API __declspec(dllexport)
+        #else
+            #define MC_FRAMEWORK_API __declspec(dllimport)
+        #endif
     #else
-        #define MC_FRAMEWORK_API __declspec(dllimport)
+        #if defined(MC_FRAMEWORK_BUILDING_LIBRARY)
+            #define MC_FRAMEWORK_API __attribute__((visibility("default")))
+        #else
+            #define MC_FRAMEWORK_API
+        #endif
     #endif
-    #define MC_PLUGIN_EXPORT extern "C" __declspec(dllexport)
 #else
-    #if __GNUC__ >= 4
-        #define MC_FRAMEWORK_API __attribute__((visibility("default")))
-        #define MC_PLUGIN_EXPORT extern "C" __attribute__((visibility("default")))
-    #else
-        #define MC_FRAMEWORK_API
-        #define MC_PLUGIN_EXPORT extern "C"
-    #endif
+    #define MC_FRAMEWORK_API
 #endif
 
-// 模块框架统一命名空间：module_context::framework
-namespace module_context {
-namespace framework {
-}
-} // namespace framework
-} // namespace module_context
+#if FOUNDATION_PLATFORM_WINDOWS
+    #define MC_PLUGIN_EXPORT __declspec(dllexport)
+#else
+    #define MC_PLUGIN_EXPORT __attribute__((visibility("default")))
+#endif

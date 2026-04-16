@@ -3,70 +3,56 @@
 #include "core/api/framework/export.h"
 #include "core/api/framework/imodule.h"
 #include "core/api/framework/imodule_manager.h"
-#include "core/framework/shared_library.h"
 
-#include <functional>
-#include <memory>
-#include <unordered_map>
+#include "foundation/base/NonCopyable.h"
+#include "foundation/base/Result.h"
+#include "foundation/plugin/PluginLoader.h"
+
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace module_context {
 namespace framework {
 
-/// @brief 管理动态库模块的加载与生命周期调度。
-class MC_FRAMEWORK_API ModuleManager final : public IModuleManager
-{
+class MC_FRAMEWORK_API ModuleManager final
+    : public IModuleManager,
+      private foundation::base::NonCopyable {
 public:
     ModuleManager();
     ~ModuleManager() override;
 
-    /// @brief 读取配置文件批量加载模块。
-    bool LoadModules(const std::string& configFilePath) override;
+    foundation::base::Result<void> LoadModules(
+        const std::string& config_file_path) override;
+    foundation::base::Result<void> LoadModule(
+        const std::string& name,
+        const std::string& library_path) override;
 
-    /// @brief 加载单个模块（通过动态库路径）。
-    bool LoadModule(const std::string& name,
-                    const std::string& libraryPath) override;
+    foundation::base::Result<void> Init(IContext& ctx) override;
+    foundation::base::Result<void> Start() override;
+    foundation::base::Result<void> Stop() override;
+    foundation::base::Result<void> Fini() override;
 
-    /// @brief 初始化全部已加载模块。
-    void Init(IContext& ctx) override;
-
-    /// @brief 启动全部模块。
-    void Start() override;
-
-    /// @brief 反向停止全部模块。
-    void Stop() override;
-
-    /// @brief 反向销毁全部模块。
-    void Fini() override;
-
-    /// @brief 按名称获取模块实例。
-    IModule* Module(const std::string& name) override;
+    foundation::base::Result<IModule*> Module(
+        const std::string& name) override;
 
 private:
-    using ModuleDeleter = std::function<void(IModule*)>;
-    using ModulePtr = std::unique_ptr<IModule, ModuleDeleter>;
+    typedef foundation::plugin::PluginLoader<IModule> ModuleLoader;
+    typedef ModuleLoader::PluginHandle ModuleHandle;
 
-    struct ModuleRecord
-    {
-        std::string name;
-        std::string libraryPath;
-        std::unique_ptr<SharedLibrary> library;
-        ModulePtr module;
-
-        ModuleRecord()
-            : module(nullptr, ModuleDeleter())
-        {
-        }
-    };
+    foundation::base::Result<ModuleHandle> CreateModuleHandle(
+        const std::string& normalized_library_path);
+    void StoreLoadedModule(
+        const std::string& name,
+        ModuleHandle module);
 
 private:
-    using ModuleList = std::vector<ModuleRecord>;
-    using ModuleIndex = std::unordered_map<std::string, std::size_t>;
+    typedef std::unordered_map<std::string, ModuleHandle> ModuleMap;
+    typedef std::vector<std::string> ModuleOrder;
 
-    ModuleList modules_;
-    ModuleIndex moduleIndexByName_;
+    ModuleMap modules_by_name_;
+    ModuleOrder module_order_;
 };
 
-} // namespace framework
-} // namespace module_context
+}  // namespace framework
+}  // namespace module_context

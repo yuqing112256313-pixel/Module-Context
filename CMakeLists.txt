@@ -1,23 +1,132 @@
 cmake_minimum_required(VERSION 3.16)
 project(module_context_core LANGUAGES CXX)
 
+include(FetchContent)
+
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+set(MC_FOUNDATION_SOURCE_DIR
+    ""
+    CACHE PATH
+    "Optional local foundation source directory. Can point to the repo root or the directory that contains CMakeLists.txt.")
+set(MC_FOUNDATION_GIT_REPOSITORY
+    "https://github.com/yuqing112256313-pixel/Foundation.git"
+    CACHE STRING
+    "Git repository used when foundation must be fetched automatically.")
+set(MC_FOUNDATION_GIT_TAG
+    "main"
+    CACHE STRING
+    "Git ref used when foundation must be fetched automatically.")
+
+function(mc_prepare_foundation_build_options)
+    set(FOUNDATION_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+    set(FOUNDATION_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(FOUNDATION_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+endfunction()
+
+function(mc_normalize_foundation_source_dir input_dir output_var)
+    if(NOT input_dir)
+        set(${output_var} "" PARENT_SCOPE)
+        return()
+    endif()
+
+    if(EXISTS "${input_dir}/CMakeLists.txt")
+        set(${output_var} "${input_dir}" PARENT_SCOPE)
+        return()
+    endif()
+
+    if(EXISTS "${input_dir}/foundation/CMakeLists.txt")
+        set(${output_var} "${input_dir}/foundation" PARENT_SCOPE)
+        return()
+    endif()
+
+    message(FATAL_ERROR
+        "foundation source directory not found under '${input_dir}'. "
+        "Expected either '${input_dir}/CMakeLists.txt' or "
+        "'${input_dir}/foundation/CMakeLists.txt'.")
+endfunction()
+
+function(mc_ensure_foundation_dependency)
+    if(TARGET foundation::foundation)
+        return()
+    endif()
+
+    set(_foundation_source_dir "")
+
+    if(MC_FOUNDATION_SOURCE_DIR)
+        mc_normalize_foundation_source_dir(
+            "${MC_FOUNDATION_SOURCE_DIR}"
+            _foundation_source_dir)
+    elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../foundation_0415_v1/foundation/CMakeLists.txt")
+        set(_foundation_source_dir
+            "${CMAKE_CURRENT_SOURCE_DIR}/../foundation_0415_v1/foundation")
+    elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../Foundation/CMakeLists.txt")
+        set(_foundation_source_dir
+            "${CMAKE_CURRENT_SOURCE_DIR}/../Foundation")
+    endif()
+
+    if(_foundation_source_dir)
+        message(STATUS
+            "Using foundation from local source: ${_foundation_source_dir}")
+        mc_prepare_foundation_build_options()
+        add_subdirectory(
+            "${_foundation_source_dir}"
+            "${CMAKE_CURRENT_BINARY_DIR}/_deps/foundation-build")
+        return()
+    endif()
+
+    find_package(foundation CONFIG QUIET)
+    if(TARGET foundation::foundation)
+        message(STATUS "Using installed foundation package")
+        return()
+    endif()
+
+    message(STATUS
+        "Fetching foundation from ${MC_FOUNDATION_GIT_REPOSITORY} "
+        "(ref: ${MC_FOUNDATION_GIT_TAG})")
+    mc_prepare_foundation_build_options()
+    FetchContent_Declare(
+        foundation
+        GIT_REPOSITORY "${MC_FOUNDATION_GIT_REPOSITORY}"
+        GIT_TAG "${MC_FOUNDATION_GIT_TAG}"
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(foundation)
+endfunction()
+
+mc_ensure_foundation_dependency()
+
+if(NOT TARGET foundation::foundation)
+    message(FATAL_ERROR
+        "foundation dependency could not be resolved. "
+        "Set MC_FOUNDATION_SOURCE_DIR to a local checkout or allow CMake "
+        "to fetch ${MC_FOUNDATION_GIT_REPOSITORY}.")
+endif()
+
 add_library(mc_core_framework SHARED
     core/framework/context.cpp
     core/framework/module_base.cpp
     core/framework/module_manager.cpp
-    core/framework/shared_library.cpp
 )
 
-target_compile_definitions(mc_core_framework PRIVATE MC_FRAMEWORK_EXPORTS)
+target_compile_definitions(mc_core_framework
+    PUBLIC
+        MC_FRAMEWORK_SHARED_LIBRARY
+    PRIVATE
+        MC_FRAMEWORK_BUILDING_LIBRARY
+)
 
 target_include_directories(mc_core_framework
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(mc_core_framework
+    PUBLIC
+        foundation::foundation
 )
 
 if(UNIX AND NOT APPLE)
