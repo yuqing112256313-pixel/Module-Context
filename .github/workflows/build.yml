@@ -31,6 +31,12 @@ jobs:
       - name: Install Debug to staging
         run: cmake --install build-debug --config Debug --prefix stage-debug
 
+      - name: Build (Debug)
+        run: cmake --build build --config Debug --parallel
+
+      - name: Install Debug to staging
+        run: cmake --install build --config Debug --prefix stage-debug
+
       - name: Collect Windows artifacts
         shell: pwsh
         run: |
