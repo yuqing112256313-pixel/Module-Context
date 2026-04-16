@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 project(module_context_core LANGUAGES CXX)
 
 include(FetchContent)
+include(GNUInstallDirs)
 
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -164,3 +165,21 @@ if(UNIX AND NOT APPLE)
 elseif(APPLE)
     target_link_libraries(mc_core_framework PRIVATE ${CMAKE_DL_LIBS})
 endif()
+
+install(TARGETS mc_core_framework
+    EXPORT module_context_core_targets
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+install(
+    DIRECTORY
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/api
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/framework
+    DESTINATION
+        ${CMAKE_INSTALL_INCLUDEDIR}/core
+    FILES_MATCHING
+        PATTERN "*.h"
+)
