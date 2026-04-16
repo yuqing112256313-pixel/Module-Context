@@ -1,8 +1,8 @@
 #pragma once
 
-#include "core/api/framework/export.h"
-#include "core/api/framework/imodule.h"
-#include "core/api/framework/imodule_manager.h"
+#include "core/api/framework/Export.h"
+#include "core/api/framework/IModule.h"
+#include "core/api/framework/IModuleManager.h"
 
 #include "foundation/base/NonCopyable.h"
 #include "foundation/base/Result.h"
