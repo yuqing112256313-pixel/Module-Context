@@ -1,45 +1,39 @@
 # Module Context Core
 
-`module_context_project_cmake` is a small module runtime framework built on top
-of `foundation_0415_v1`.
+`module_context_project_cmake` 是一个基于 `foundation` 的轻量级模块运行时框架，
+用于统一管理插件模块的加载、生命周期与查询。
 
-## What Changed
+## 主要能力
 
-- Dynamic-library loading and plugin lifetime now delegate to
-  `foundation::plugin::PluginLoader<IModule>`.
-- Config-file loading now uses `foundation::config::ConfigReader`.
-- Public lifecycle and loading APIs now return
-  `foundation::base::Result<void>` instead of `bool`/`void`.
-- Export macros now follow the same platform split as `foundation`.
-- Common infrastructure such as `NonCopyable`, `Assert`, path normalization, and
-  error codes now come from `foundation`.
-- Module export symbols now follow foundation's plugin convention:
-  `GetPluginApiVersion`, `CreatePlugin`, `DestroyPlugin`.
+- 通过 `foundation::plugin::PluginLoader<IModule>` 动态加载共享库插件。
+- 通过 `foundation::config::ConfigReader` 读取 JSON 模块配置。
+- 对外接口统一返回 `foundation::base::Result<T>`，便于携带错误码与错误信息。
+- 插件导出符号遵循约定：`GetPluginApiVersion`、`CreatePlugin`、`DestroyPlugin`。
+- 生命周期管理顺序清晰：`Init -> Start -> Stop -> Fini`。
 
-## Build
+## 构建说明
 
-Dependency resolution order:
-- Reuse `foundation::foundation` if a parent project already provides it.
-- Use `MC_FOUNDATION_SOURCE_DIR` if you point it at a local checkout.
-- Fall back to common sibling checkouts such as `../foundation_0415_v1/foundation`
-  or `../Foundation`.
-- Otherwise fetch `foundation` automatically from
-  `https://github.com/yuqing112256313-pixel/Foundation.git`.
+`foundation` 依赖解析顺序如下：
 
-Build with:
+1. 若父工程已提供 `foundation::foundation`，则直接复用；
+2. 若传入 `MC_FOUNDATION_SOURCE_DIR`，则使用指定路径；
+3. 回退查找常见同级目录（例如 `../foundation_0415_v1/foundation`、`../Foundation`）；
+4. 若都未命中，则自动从远端仓库拉取。
+
+构建命令：
 
 ```bash
 cmake -S . -B build
 cmake --build build -j
 ```
 
-To force a specific local checkout:
+指定本地 Foundation 路径（可选）：
 
 ```bash
 cmake -S . -B build -DMC_FOUNDATION_SOURCE_DIR=/path/to/Foundation
 ```
 
-## Usage
+## 快速使用
 
 ```cpp
 #include "core/framework/Context.h"
@@ -68,18 +62,19 @@ if (!result.IsOk()) {
 }
 ```
 
-The loader now accepts one canonical JSON module config format.
+## 模块配置格式（JSON）
 
-Recommended standard:
-- The root must be a JSON object.
-- `schema_version` is required and must currently be `1`.
-- `modules` is required and must be an array.
-- Module lifecycle order is exactly the order of the `modules` array.
-- Each module entry must contain non-empty string fields `name` and
-  `library_path`.
-- Module names must be unique in one config file.
-- Relative `library_path` values are resolved against the config file
-  directory.
+推荐使用以下标准格式：
+
+- 根节点必须是对象；
+- `schema_version` 必填，当前仅支持 `1`；
+- `modules` 必填，且必须是数组；
+- 生命周期执行顺序与 `modules` 数组顺序一致；
+- 每个模块项需包含非空字符串字段：`name`、`library_path`；
+- 单个配置文件内模块名必须唯一；
+- 相对 `library_path` 将按配置文件所在目录进行解析。
+
+示例：
 
 ```json
 {
@@ -97,20 +92,20 @@ Recommended standard:
 }
 ```
 
-Plugin modules should export the factory functions via:
+## 插件导出方式
+
+插件模块建议在实现文件中使用：
 
 ```cpp
 MC_DECLARE_MODULE_FACTORY(YourModuleType)
 ```
 
-This now emits foundation-compatible plugin symbols and API version metadata.
+该宏会导出与框架兼容的工厂函数与 API 版本符号。
 
-## Runtime Behavior
+## 运行时行为
 
-- Module lifecycle order remains `Init -> Start -> Stop -> Fini`.
-- `LoadModules()` validates the whole JSON config before committing loaded
-  modules into the manager.
-- `Stop()` and `Fini()` run in reverse module order.
-- Loading stops on the first failure and returns a `foundation` error code plus
-  message.
-- `Module(name)` now returns `foundation::base::Result<IModule*>`.
+- 生命周期顺序：`Init -> Start -> Stop -> Fini`；
+- `Stop()` 与 `Fini()` 按模块加载逆序执行；
+- `LoadModules()` 会先完整校验配置，再一次性提交加载成功的模块；
+- 任意阶段遇到错误会立即返回，错误包含 `foundation` 错误码与说明信息；
+- `Module(name)` 返回 `foundation::base::Result<IModule*>`，可区分“未找到”与“状态异常”。

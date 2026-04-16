@@ -92,6 +92,7 @@ foundation::base::Result<ModuleConfigSpec> ParseModuleConfigEntry(
 
     ModuleConfigSpec spec;
     spec.name = name.Value();
+    // 将路径归一化为绝对路径，避免不同工作目录导致加载行为不一致。
     if (foundation::filesystem::IsAbsolute(library_path.Value())) {
         spec.library_path =
             foundation::filesystem::GetAbsolutePath(library_path.Value());
@@ -184,6 +185,7 @@ foundation::base::Result<std::vector<ModuleConfigSpec> > ReadModuleConfig(
                     spec.GetMessage()));
         }
 
+        // 在配置解析阶段就拦截重复模块名，避免后续半加载状态。
         if (!seen_names.insert(spec.Value().name).second) {
             return foundation::base::Result<std::vector<ModuleConfigSpec> >(
                 foundation::base::ErrorCode::kAlreadyExists,
@@ -240,6 +242,7 @@ foundation::base::Result<void> ModuleManager::LoadModules(
             entries.GetMessage());
     }
 
+    // 预检查：如果管理器中已存在同名模块，则拒绝本次批量加载。
     for (std::size_t index = 0; index < entries.Value().size(); ++index) {
         if (modules_by_name_.find(entries.Value()[index].name) !=
             modules_by_name_.end()) {
@@ -250,6 +253,9 @@ foundation::base::Result<void> ModuleManager::LoadModules(
         }
     }
 
+    // 两阶段提交：
+    // 1) 先全部创建到 staged_modules；
+    // 2) 全成功后再统一写入 modules_by_name_ / module_order_。
     std::vector<std::pair<std::string, ModuleHandle> > staged_modules;
     staged_modules.reserve(entries.Value().size());
 
@@ -311,6 +317,7 @@ foundation::base::Result<void> ModuleManager::LoadModule(
 foundation::base::Result<ModuleManager::ModuleHandle>
 ModuleManager::CreateModuleHandle(
     const std::string& normalized_library_path) {
+    // 使用临时 loader 完成“打开库 + 创建实例”，最终返回可移动的句柄。
     ModuleLoader loader;
     foundation::base::Result<void> open_result = loader.Open(
         normalized_library_path,
@@ -346,6 +353,7 @@ void ModuleManager::StoreLoadedModule(
 }
 
 foundation::base::Result<void> ModuleManager::Init(IContext& ctx) {
+    // Init/Start 按加载顺序执行，便于满足模块间前置依赖关系。
     for (std::size_t index = 0; index < module_order_.size(); ++index) {
         ModuleMap::iterator it = modules_by_name_.find(module_order_[index]);
         if (it == modules_by_name_.end() || !it->second.IsValid()) {
@@ -389,6 +397,7 @@ foundation::base::Result<void> ModuleManager::Stop() {
     foundation::base::Result<void> first_error =
         foundation::base::MakeSuccess();
 
+    // Stop/Fini 按逆序执行，对应“后启动先停止”的栈式回收语义。
     for (ModuleOrder::reverse_iterator it = module_order_.rbegin();
          it != module_order_.rend();
          ++it) {
@@ -424,6 +433,7 @@ foundation::base::Result<void> ModuleManager::Fini() {
         }
     }
 
+    // 完成反初始化后清空容器，释放句柄并重置管理器状态。
     modules_by_name_.clear();
     module_order_.clear();
 
