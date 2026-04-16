@@ -39,6 +39,14 @@ cmake -S . -B build
 cmake --build build -j
 ```
 
+启用示例与测试（默认开启）：
+
+```bash
+cmake -S . -B build -DMC_BUILD_EXAMPLES=ON -DMC_BUILD_TESTS=ON
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+```
+
 指定本地 Foundation 路径（可选）：
 
 ```bash
@@ -74,6 +82,16 @@ if (!result.IsOk()) {
     return static_cast<int>(result.GetError());
 }
 ```
+
+## Examples
+
+- `examples/basic_context_lifecycle.cpp`：最小上下文生命周期驱动示例；
+- `examples/module_config.sample.json`：可直接参考的模块配置文件模板。
+
+## Tests
+
+- `tests/module_base_lifecycle_test.cpp`：覆盖 `ModuleBase` 的核心状态机与 Hook 调用次数；
+- 构建后可通过 `ctest --test-dir build --output-on-failure` 执行。
 
 ## 模块配置格式（JSON）
 

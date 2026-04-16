@@ -9,6 +9,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+option(MC_BUILD_EXAMPLES "Build examples targets" ON)
+option(MC_BUILD_TESTS "Build test targets" ON)
+
 set(MC_FOUNDATION_SOURCE_DIR
     ""
     CACHE PATH
@@ -192,3 +195,13 @@ install(
         ${CMAKE_INSTALL_INCLUDEDIR}/core/api/framework
 )
 
+if(MC_BUILD_EXAMPLES AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples/CMakeLists.txt")
+    add_subdirectory(examples)
+endif()
+
+if(MC_BUILD_TESTS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CMakeLists.txt")
+    include(CTest)
+    if(BUILD_TESTING)
+        add_subdirectory(tests)
+    endif()
+endif()
