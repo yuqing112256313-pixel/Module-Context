@@ -5,6 +5,18 @@
 
 ## 主要能力
 
+## 目录结构
+
+```text
+.
+├── examples/
+├── include/
+│   └── core/api/framework/
+├── src/
+│   └── framework/  # 内部实现（含不导出头文件）
+└── tests/
+```
+
 - 通过 `foundation::plugin::PluginLoader<IModule>` 动态加载共享库插件。
 - 通过 `foundation::config::ConfigReader` 读取 JSON 模块配置。
 - 对外接口统一返回 `foundation::base::Result<T>`，便于携带错误码与错误信息。
@@ -36,10 +48,11 @@ cmake -S . -B build -DMC_FOUNDATION_SOURCE_DIR=/path/to/Foundation
 ## 快速使用
 
 ```cpp
-#include "core/framework/Context.h"
+#include "core/api/framework/IContext.h"
 #include "foundation/base/ErrorCode.h"
 
-module_context::framework::Context context;
+module_context::framework::IContext& context =
+    module_context::framework::IContext::Instance();
 
 foundation::base::Result<void> result = context.Init();
 if (!result.IsOk()) {
