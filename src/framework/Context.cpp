@@ -9,7 +9,6 @@ namespace module_context {
 namespace framework {
 
 IContext& IContext::Instance() {
-    // 函数内静态对象：线程安全懒初始化，进程内全局唯一。
     static Context context;
     return context;
 }
@@ -19,7 +18,6 @@ Context::Context()
 }
 
 Context::~Context() {
-    // 析构兜底：确保即使调用方遗漏，也会尝试释放模块资源。
     (void)Fini();
 }
 
@@ -55,7 +53,6 @@ foundation::base::Result<void> Context::Stop() {
 
 foundation::base::Result<void> Context::Fini() {
     if (!module_manager_) {
-        // 已无管理器时视为幂等成功。
         return foundation::base::MakeSuccess();
     }
 
@@ -64,6 +61,29 @@ foundation::base::Result<void> Context::Fini() {
 
 IModuleManager* Context::ModuleManager() {
     return module_manager_.get();
+}
+
+foundation::base::Result<IModule*> Context::LookupServiceRaw(
+    const char* service_key,
+    const std::string& name) {
+    if (!module_manager_) {
+        return foundation::base::Result<IModule*>(
+            foundation::base::ErrorCode::kInvalidState,
+            "Context::GetService failed: module manager is unavailable");
+    }
+
+    return module_manager_->LookupNamedService(service_key, name);
+}
+
+foundation::base::Result<IModule*> Context::LookupUniqueServiceRaw(
+    const char* service_key) {
+    if (!module_manager_) {
+        return foundation::base::Result<IModule*>(
+            foundation::base::ErrorCode::kInvalidState,
+            "Context::GetService failed: module manager is unavailable");
+    }
+
+    return module_manager_->LookupUniqueService(service_key);
 }
 
 }  // namespace framework

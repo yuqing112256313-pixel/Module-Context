@@ -10,11 +10,12 @@
 namespace module_context {
 namespace framework {
 
+class ModuleManager;
+
 class Context final
     : public IContext,
       private foundation::base::NonCopyable {
 public:
-    /// 默认上下文实现，内部持有 ModuleManager。
     Context();
     ~Context() override;
 
@@ -26,8 +27,14 @@ public:
     IModuleManager* ModuleManager() override;
 
 private:
-    /// 模块管理器的唯一所有权，由 Context 生命周期托管。
-    std::unique_ptr<IModuleManager> module_manager_;
+    foundation::base::Result<IModule*> LookupServiceRaw(
+        const char* service_key,
+        const std::string& name) override;
+    foundation::base::Result<IModule*> LookupUniqueServiceRaw(
+        const char* service_key) override;
+
+private:
+    std::unique_ptr<ModuleManager> module_manager_;
 };
 
 }  // namespace framework

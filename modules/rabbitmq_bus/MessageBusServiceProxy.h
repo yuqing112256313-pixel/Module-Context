@@ -1,9 +1,6 @@
 #pragma once
 
 #include "core/api/messaging/IMessageBusService.h"
-#include "framework/ModuleBase.h"
-
-#include "foundation/base/Result.h"
 
 #include <memory>
 #include <string>
@@ -12,17 +9,12 @@ namespace module_context {
 namespace messaging {
 
 struct RabbitMqBusSharedState;
-class MessageBusServiceProxy;
 
-class RabbitMqBusModule final
-    : public module_context::framework::ModuleBase,
-      public IMessageBusService {
+class MessageBusServiceProxy : public IMessageBusService {
 public:
-    RabbitMqBusModule();
-    ~RabbitMqBusModule() override;
-
-    std::string ModuleType() const override;
-    std::string ModuleVersion() const override;
+    explicit MessageBusServiceProxy(
+        const std::shared_ptr<RabbitMqBusSharedState>& state);
+    ~MessageBusServiceProxy() override;
 
     foundation::base::Result<void> Publish(
         const PublishRequest& request) override;
@@ -39,15 +31,8 @@ public:
         const BindingSpec& spec) override;
     ConnectionState GetConnectionState() const override;
 
-protected:
-    foundation::base::Result<void> OnInit() override;
-    foundation::base::Result<void> OnStart() override;
-    foundation::base::Result<void> OnStop() override;
-    foundation::base::Result<void> OnFini() override;
-
 private:
-    std::shared_ptr<RabbitMqBusSharedState> shared_state_;
-    std::unique_ptr<MessageBusServiceProxy> service_proxy_;
+    std::shared_ptr<RabbitMqBusSharedState> state_;
 };
 
 }  // namespace messaging

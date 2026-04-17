@@ -9,7 +9,19 @@ namespace framework {
 
 namespace {
 
-// 统一构造“非法状态迁移”错误，便于定位生命周期调用时序问题。
+// The table order must match ModuleState exactly, and enum values must stay
+// contiguous starting from 0.
+const int kModuleStateCount = static_cast<int>(ModuleState::Fini) + 1;
+
+const bool kValidTransitions[kModuleStateCount][kModuleStateCount] = {
+    // to:    Created  Inited  Started  Stopped  Fini
+    /* from Created */ {false, true,   false,   false,   true},
+    /* from Inited  */ {false, false,  true,    false,   true},
+    /* from Started */ {false, false,  false,   true,    true},
+    /* from Stopped */ {false, false,  true,    false,   true},
+    /* from Fini    */ {false, true,   false,   false,   false}
+};
+
 foundation::base::Result<void> MakeStateError(
     const char* operation,
     const std::string& module_name,
@@ -21,7 +33,6 @@ foundation::base::Result<void> MakeStateError(
             std::to_string(static_cast<int>(state)));
 }
 
-// 为子类 Hook 返回的错误增加上下文前缀，提升日志可读性。
 foundation::base::Result<void> PrefixHookError(
     const char* operation,
     const std::string& module_name,
@@ -40,6 +51,7 @@ foundation::base::Result<void> PrefixHookError(
 
 ModuleBase::ModuleBase()
     : ctx_(NULL),
+      module_name_(),
       state_(ModuleState::Created) {
 }
 
@@ -47,11 +59,29 @@ ModuleBase::~ModuleBase() {
 }
 
 std::string ModuleBase::ModuleName() const {
-    return "unknown";
+    if (!module_name_.empty()) {
+        return module_name_;
+    }
+
+    return ModuleType();
 }
 
-std::string ModuleBase::ModuleVersion() const {
-    return "unknown";
+foundation::base::Result<void> ModuleBase::SetModuleName(
+    const std::string& name) {
+    if (name.empty()) {
+        return foundation::base::Result<void>(
+            foundation::base::ErrorCode::kInvalidArgument,
+            "ModuleBase::SetModuleName failed: name is empty");
+    }
+
+    if (state_ != ModuleState::Created) {
+        return foundation::base::Result<void>(
+            foundation::base::ErrorCode::kInvalidState,
+            "ModuleBase::SetModuleName failed: module is not in Created state");
+    }
+
+    module_name_ = name;
+    return foundation::base::MakeSuccess();
 }
 
 ModuleState ModuleBase::State() const {
@@ -86,36 +116,22 @@ foundation::base::Result<void> ModuleBase::OnFini() {
 }
 
 bool ModuleBase::IsValidTransition(ModuleState from, ModuleState to) {
-    if (from == to) {
+    const int from_index = static_cast<int>(from);
+    const int to_index = static_cast<int>(to);
+
+    if (from_index < 0 || from_index >= kModuleStateCount ||
+        to_index < 0 || to_index >= kModuleStateCount) {
         return false;
     }
 
-    switch (to) {
-        case ModuleState::Inited:
-            return from == ModuleState::Created || from == ModuleState::Fini;
-        case ModuleState::Started:
-            return from == ModuleState::Inited || from == ModuleState::Stopped;
-        case ModuleState::Stopped:
-            return from == ModuleState::Started;
-        case ModuleState::Fini:
-            return from == ModuleState::Created ||
-                   from == ModuleState::Inited ||
-                   from == ModuleState::Started ||
-                   from == ModuleState::Stopped;
-        case ModuleState::Created:
-            return false;
-        default:
-            return false;
-    }
+    return kValidTransitions[from_index][to_index];
 }
 
 foundation::base::Result<void> ModuleBase::Init(IContext& ctx) {
-    // Init 仅允许 Created/Fini -> Inited。
     if (!IsValidTransition(state_, ModuleState::Inited)) {
         return MakeStateError("Init", ModuleName(), state_);
     }
 
-    // 先保存上下文，再进入子类初始化；失败时回滚上下文指针。
     ctx_ = &ctx;
     foundation::base::Result<void> init_result = OnInit();
     if (!init_result.IsOk()) {
@@ -128,7 +144,6 @@ foundation::base::Result<void> ModuleBase::Init(IContext& ctx) {
 }
 
 foundation::base::Result<void> ModuleBase::Start() {
-    // Start 仅允许 Inited/Stopped -> Started。
     if (!IsValidTransition(state_, ModuleState::Started)) {
         return MakeStateError("Start", ModuleName(), state_);
     }
@@ -143,7 +158,6 @@ foundation::base::Result<void> ModuleBase::Start() {
 }
 
 foundation::base::Result<void> ModuleBase::Stop() {
-    // Stop 仅允许 Started -> Stopped。
     if (!IsValidTransition(state_, ModuleState::Stopped)) {
         return MakeStateError("Stop", ModuleName(), state_);
     }
@@ -158,33 +172,30 @@ foundation::base::Result<void> ModuleBase::Stop() {
 }
 
 foundation::base::Result<void> ModuleBase::Fini() {
-    // Fini 允许从除 Created 以外的大多数状态进入，且保证最终会标记为 Fini。
     if (!IsValidTransition(state_, ModuleState::Fini)) {
         return MakeStateError("Fini", ModuleName(), state_);
     }
 
     foundation::base::Result<void> first_error =
         foundation::base::MakeSuccess();
+    ModuleState cleanup_state = state_;
 
-    if (state_ == ModuleState::Started) {
-        // 若仍在运行态，先执行 OnStop 以关闭运行逻辑。
+    if (IsValidTransition(cleanup_state, ModuleState::Stopped)) {
         foundation::base::Result<void> stop_result = OnStop();
         if (!stop_result.IsOk()) {
             first_error = PrefixHookError("Fini", ModuleName(), stop_result);
         }
+
+        cleanup_state = ModuleState::Stopped;
     }
 
-    if (state_ == ModuleState::Inited ||
-        state_ == ModuleState::Stopped ||
-        state_ == ModuleState::Started) {
-        // 对已初始化过的模块执行 OnFini 释放资源。
+    if (IsValidTransition(cleanup_state, ModuleState::Started)) {
         foundation::base::Result<void> fini_result = OnFini();
         if (first_error.IsOk() && !fini_result.IsOk()) {
             first_error = PrefixHookError("Fini", ModuleName(), fini_result);
         }
     }
 
-    // 无论 Hook 是否报错，都确保上下文断开并进入终态，避免悬挂状态。
     ctx_ = NULL;
     state_ = ModuleState::Fini;
     return first_error;

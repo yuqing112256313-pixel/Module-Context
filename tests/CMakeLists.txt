@@ -75,6 +75,7 @@ add_test(
 if(TARGET rabbitmq_bus)
     add_executable(mc_rabbitmq_bus_module_test
         rabbitmq_bus_module_test.cpp
+        ../modules/rabbitmq_bus/MessageBusServiceProxy.cpp
         ../modules/rabbitmq_bus/RabbitMqBusModule.cpp
     )
 

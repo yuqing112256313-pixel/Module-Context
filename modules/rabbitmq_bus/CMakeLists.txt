@@ -1,4 +1,5 @@
 set(RABBITMQ_BUS_SOURCES
+    MessageBusServiceProxy.cpp
     RabbitMqBusModule.cpp
 )
 

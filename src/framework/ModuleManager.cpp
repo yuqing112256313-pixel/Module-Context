@@ -1,5 +1,8 @@
 #include "framework/ModuleManager.h"
 
+#include "core/api/framework/IContext.h"
+#include "core/api/messaging/IMessageBusService.h"
+
 #include "foundation/base/ErrorCode.h"
 #include "foundation/config/ConfigReader.h"
 #include "foundation/config/ConfigValue.h"
@@ -20,20 +23,23 @@ namespace {
 
 struct ModuleConfigSpec {
     std::string name;
+    std::string type;
     std::string library_path;
     foundation::config::ConfigValue config;
 
     ModuleConfigSpec()
         : name(),
+          type(),
           library_path(),
           config(foundation::config::ConfigValue::MakeObject()) {
     }
 };
 
 static const char kConfigSchemaVersionKey[] = "schema_version";
-static const std::int64_t kConfigSchemaVersion = 1;
+static const std::int64_t kConfigSchemaVersion = 2;
 static const char kConfigModulesKey[] = "modules";
 static const char kConfigNameKey[] = "name";
+static const char kConfigTypeKey[] = "type";
 static const char kConfigLibraryPathKey[] = "library_path";
 static const char kConfigInlineConfigKey[] = "config";
 
@@ -72,6 +78,15 @@ foundation::base::Result<ModuleConfigSpec> ParseModuleConfigEntry(
             "]: missing 'name'");
     }
 
+    foundation::base::Result<foundation::config::ConfigValue> type_value =
+        value.ObjectGet(kConfigTypeKey);
+    if (!type_value.IsOk()) {
+        return MakeConfigSpecError(
+            "Invalid module config entry at modules[" +
+            std::to_string(static_cast<unsigned long long>(index)) +
+            "]: missing 'type'");
+    }
+
     foundation::base::Result<foundation::config::ConfigValue> library_path_value =
         value.ObjectGet(kConfigLibraryPathKey);
     if (!library_path_value.IsOk()) {
@@ -82,24 +97,28 @@ foundation::base::Result<ModuleConfigSpec> ParseModuleConfigEntry(
     }
 
     foundation::base::Result<std::string> name = name_value.Value().AsString();
+    foundation::base::Result<std::string> type = type_value.Value().AsString();
     foundation::base::Result<std::string> library_path =
         library_path_value.Value().AsString();
-    if (!name.IsOk() || !library_path.IsOk()) {
+    if (!name.IsOk() || !type.IsOk() || !library_path.IsOk()) {
         return MakeConfigSpecError(
             "Invalid module config entry at modules[" +
             std::to_string(static_cast<unsigned long long>(index)) +
-            "]: 'name' and 'library_path' must both be strings");
+            "]: 'name', 'type', and 'library_path' must all be strings");
     }
 
-    if (name.Value().empty() || library_path.Value().empty()) {
+    if (name.Value().empty() ||
+        type.Value().empty() ||
+        library_path.Value().empty()) {
         return MakeConfigSpecError(
             "Invalid module config entry at modules[" +
             std::to_string(static_cast<unsigned long long>(index)) +
-            "]: 'name' and 'library_path' must not be empty");
+            "]: 'name', 'type', and 'library_path' must not be empty");
     }
 
     ModuleConfigSpec spec;
     spec.name = name.Value();
+    spec.type = type.Value();
     // 将路径归一化为绝对路径，避免不同工作目录导致加载行为不一致。
     if (foundation::filesystem::IsAbsolute(library_path.Value())) {
         spec.library_path =
@@ -243,12 +262,79 @@ foundation::base::Result<void> PrefixModuleError(
             result.GetMessage()));
 }
 
+foundation::base::Result<void> AssignModuleName(
+    const std::string& config_name,
+    IModule* module) {
+    if (module == NULL) {
+        return foundation::base::Result<void>(
+            foundation::base::ErrorCode::kCreateFailed,
+            "created module instance is null");
+    }
+
+    foundation::base::Result<void> set_result =
+        module->SetModuleName(config_name);
+    if (!set_result.IsOk()) {
+        return foundation::base::Result<void>(
+            foundation::base::ErrorCode::kCreateFailed,
+            BuildMessage(
+                "failed to assign module instance name '" + config_name + "'",
+                set_result.GetMessage()));
+    }
+
+    if (module->ModuleName() != config_name) {
+        return foundation::base::Result<void>(
+            foundation::base::ErrorCode::kInvalidState,
+            "module name mismatch after creation, config.name=" + config_name +
+                ", runtime.name=" + module->ModuleName());
+    }
+
+    return foundation::base::MakeSuccess();
+}
+
+foundation::base::Result<void> ValidateConfiguredModule(
+    const ModuleConfigSpec& spec,
+    IModule* module) {
+    if (module == NULL) {
+        return foundation::base::Result<void>(
+            foundation::base::ErrorCode::kCreateFailed,
+            "created module instance is null");
+    }
+
+    if (module->ModuleName() != spec.name) {
+        return foundation::base::Result<void>(
+            foundation::base::ErrorCode::kInvalidState,
+            "module name mismatch after creation, config.name=" + spec.name +
+                ", runtime.name=" + module->ModuleName());
+    }
+
+    const std::string runtime_type = module->ModuleType();
+    if (runtime_type.empty()) {
+        return foundation::base::Result<void>(
+            foundation::base::ErrorCode::kInvalidState,
+            "module type is empty after creation, config.name=" + spec.name +
+                ", config.type=" + spec.type +
+                ", runtime.name=" + module->ModuleName());
+    }
+
+    if (runtime_type != spec.type) {
+        return foundation::base::Result<void>(
+            foundation::base::ErrorCode::kInvalidState,
+            "module type mismatch after creation, config.name=" + spec.name +
+                ", config.type=" + spec.type +
+                ", runtime.name=" + module->ModuleName() +
+                ", runtime.type=" + runtime_type);
+    }
+
+    return foundation::base::MakeSuccess();
+}
+
 }  // namespace
 
 ModuleManager::ModuleManager()
     : modules_by_name_(),
       configs_by_name_(),
-      module_order_() {
+      module_order_(),
+      service_factory_() {
 }
 
 ModuleManager::~ModuleManager() {
@@ -297,6 +383,30 @@ foundation::base::Result<void> ModuleManager::LoadModules(
                 created_module.GetMessage());
         }
 
+        foundation::base::Result<void> name_result = AssignModuleName(
+            entries.Value()[index].name,
+            created_module.Value().Get());
+        if (!name_result.IsOk()) {
+            return foundation::base::Result<void>(
+                name_result.GetError(),
+                BuildMessage(
+                    "ModuleManager failed to prepare plugin instance from '" +
+                        entries.Value()[index].library_path + "'",
+                    name_result.GetMessage()));
+        }
+
+        foundation::base::Result<void> validate_result = ValidateConfiguredModule(
+            entries.Value()[index],
+            created_module.Value().Get());
+        if (!validate_result.IsOk()) {
+            return foundation::base::Result<void>(
+                validate_result.GetError(),
+                BuildMessage(
+                    "ModuleManager failed to validate plugin instance from '" +
+                        entries.Value()[index].library_path + "'",
+                    validate_result.GetMessage()));
+        }
+
         staged_modules.push_back(
             std::make_pair(
                 entries.Value()[index].name,
@@ -341,6 +451,18 @@ foundation::base::Result<void> ModuleManager::LoadModule(
             created_module.GetMessage());
     }
 
+    foundation::base::Result<void> name_result = AssignModuleName(
+        name,
+        created_module.Value().Get());
+    if (!name_result.IsOk()) {
+        return foundation::base::Result<void>(
+            name_result.GetError(),
+            BuildMessage(
+                "ModuleManager failed to prepare plugin instance from '" +
+                    normalized_library_path + "'",
+                name_result.GetMessage()));
+    }
+
     StoreLoadedModule(name, std::move(created_module.Value()));
     configs_by_name_[name] = foundation::config::ConfigValue::MakeObject();
     return foundation::base::MakeSuccess();
@@ -380,8 +502,10 @@ ModuleManager::CreateModuleHandle(
 void ModuleManager::StoreLoadedModule(
     const std::string& name,
     ModuleHandle module) {
+    IModule* module_ptr = module.Get();
     modules_by_name_.emplace(name, std::move(module));
     module_order_.push_back(name);
+    RegisterKnownServices(name, module_ptr);
 }
 
 foundation::base::Result<void> ModuleManager::Init(IContext& ctx) {
@@ -466,6 +590,7 @@ foundation::base::Result<void> ModuleManager::Fini() {
     }
 
     // 完成反初始化后清空容器，释放句柄并重置管理器状态。
+    service_factory_.Clear();
     modules_by_name_.clear();
     configs_by_name_.clear();
     module_order_.clear();
@@ -473,7 +598,7 @@ foundation::base::Result<void> ModuleManager::Fini() {
     return first_error;
 }
 
-foundation::base::Result<IModule*> ModuleManager::Module(
+foundation::base::Result<IModule*> ModuleManager::LookupModuleRaw(
     const std::string& name) {
     ModuleMap::iterator it = modules_by_name_.find(name);
     if (it == modules_by_name_.end()) {
@@ -505,6 +630,32 @@ ModuleManager::ModuleConfig(const std::string& name) {
 
     return foundation::base::Result<foundation::config::ConfigValue>(
         it->second);
+}
+
+foundation::base::Result<IModule*> ModuleManager::LookupNamedService(
+    const std::string& service_key,
+    const std::string& name) {
+    return service_factory_.Lookup(service_key, name);
+}
+
+foundation::base::Result<IModule*> ModuleManager::LookupUniqueService(
+    const std::string& service_key) {
+    return service_factory_.LookupUnique(service_key);
+}
+
+void ModuleManager::RegisterKnownServices(
+    const std::string& name,
+    IModule* module) {
+    if (module == NULL) {
+        return;
+    }
+
+    if (dynamic_cast<module_context::messaging::IMessageBusService*>(module) != NULL) {
+        service_factory_.Register(
+            ServiceTypeTraits<module_context::messaging::IMessageBusService>::Key(),
+            name,
+            module);
+    }
 }
 
 }  // namespace framework

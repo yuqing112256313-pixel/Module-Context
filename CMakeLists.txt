@@ -157,6 +157,7 @@ add_library(mc_core_framework SHARED
     src/framework/Context.cpp
     src/framework/ModuleBase.cpp
     src/framework/ModuleManager.cpp
+    src/framework/ServiceFactory.cpp
 )
 
 set(MC_CORE_FRAMEWORK_PUBLIC_HEADERS

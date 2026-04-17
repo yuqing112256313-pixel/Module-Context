@@ -7,7 +7,7 @@ namespace module_context {
 namespace framework {
 
 /// 插件 API 版本号。宿主加载时会校验版本一致性。
-static const int kModulePluginApiVersion = 1;
+static const int kModulePluginApiVersion = 2;
 
 // This header intentionally remains a tiny C-ABI export shim instead of
 // reusing foundation::patterns::Factory. PluginLoader discovers modules across

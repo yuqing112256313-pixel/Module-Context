@@ -1,5 +1,7 @@
 #include "framework/ModuleManager.h"
 
+#include "core/api/framework/IContext.h"
+
 #include "foundation/base/ErrorCode.h"
 #include "foundation/config/ConfigValue.h"
 #include "foundation/filesystem/FileUtils.h"
@@ -46,14 +48,60 @@ std::string ConfigPath(const std::string& file_name) {
     return foundation::filesystem::Join(MC_TEST_BINARY_DIR, file_name);
 }
 
+class DummyContext : public module_context::framework::IContext {
+public:
+    explicit DummyContext(module_context::framework::IModuleManager* manager)
+        : manager_(manager) {
+    }
+
+    foundation::base::Result<void> Init() override {
+        return foundation::base::MakeSuccess();
+    }
+
+    foundation::base::Result<void> Start() override {
+        return foundation::base::MakeSuccess();
+    }
+
+    foundation::base::Result<void> Stop() override {
+        return foundation::base::MakeSuccess();
+    }
+
+    foundation::base::Result<void> Fini() override {
+        return foundation::base::MakeSuccess();
+    }
+
+    module_context::framework::IModuleManager* ModuleManager() override {
+        return manager_;
+    }
+
+private:
+    foundation::base::Result<module_context::framework::IModule*> LookupServiceRaw(
+        const char*,
+        const std::string&) override {
+        return foundation::base::Result<module_context::framework::IModule*>(
+            foundation::base::ErrorCode::kNotFound,
+            "No services are registered");
+    }
+
+    foundation::base::Result<module_context::framework::IModule*> LookupUniqueServiceRaw(
+        const char*) override {
+        return foundation::base::Result<module_context::framework::IModule*>(
+            foundation::base::ErrorCode::kNotFound,
+            "No services are registered");
+    }
+
+    module_context::framework::IModuleManager* manager_;
+};
+
 bool RunValidInlineConfigCase() {
     std::ostringstream config;
     config
         << "{\n"
-        << "  \"schema_version\": 1,\n"
+        << "  \"schema_version\": 2,\n"
         << "  \"modules\": [\n"
         << "    {\n"
-        << "      \"name\": \"config_test_module\",\n"
+        << "      \"name\": \"config_test_alias\",\n"
+        << "      \"type\": \"config_test_module\",\n"
         << "      \"library_path\": \"" << JsonEscape(MC_TEST_CONFIG_PLUGIN_PATH) << "\",\n"
         << "      \"config\": {\n"
         << "        \"role\": \"master\",\n"
@@ -77,13 +125,30 @@ bool RunValidInlineConfigCase() {
     }
 
     foundation::base::Result<module_context::framework::IModule*> module =
-        manager.Module("config_test_module");
-    if (!Expect(module.IsOk(), "Loaded module should be queryable by name")) {
+        manager.Module<module_context::framework::IModule>("config_test_alias");
+    if (!Expect(module.IsOk(), "Loaded module should be queryable by instance name")) {
+        return false;
+    }
+    if (!Expect(module.Value()->ModuleName() == "config_test_alias",
+                "ModuleName should expose the configured instance name")) {
+        return false;
+    }
+    if (!Expect(module.Value()->ModuleType() == "config_test_module",
+                "ModuleType should expose the configured plugin type")) {
+        return false;
+    }
+
+    foundation::base::Result<module_context::framework::IModule*> missing_by_type =
+        manager.Module<module_context::framework::IModule>("config_test_module");
+    if (!Expect(
+            !missing_by_type.IsOk() &&
+                missing_by_type.GetError() == foundation::base::ErrorCode::kNotFound,
+            "Loaded module should not be queryable by type name")) {
         return false;
     }
 
     foundation::base::Result<foundation::config::ConfigValue> config_value =
-        manager.ModuleConfig("config_test_module");
+        manager.ModuleConfig("config_test_alias");
     if (!Expect(config_value.IsOk(), "ModuleConfig should return inline config")) {
         return false;
     }
@@ -127,6 +192,13 @@ bool RunValidInlineConfigCase() {
         return false;
     }
 
+    DummyContext context(&manager);
+    foundation::base::Result<void> init_result = manager.Init(context);
+    if (!Expect(init_result.IsOk(),
+                "Init should succeed when the plugin reads config by instance name")) {
+        return false;
+    }
+
     foundation::base::Result<void> fini_result = manager.Fini();
     if (!Expect(fini_result.IsOk(), "Fini should succeed after LoadModules")) {
         return false;
@@ -139,10 +211,11 @@ bool RunConfigMustBeObjectCase() {
     std::ostringstream config;
     config
         << "{\n"
-        << "  \"schema_version\": 1,\n"
+        << "  \"schema_version\": 2,\n"
         << "  \"modules\": [\n"
         << "    {\n"
-        << "      \"name\": \"config_test_module\",\n"
+        << "      \"name\": \"config_test_alias\",\n"
+        << "      \"type\": \"config_test_module\",\n"
         << "      \"library_path\": \"" << JsonEscape(MC_TEST_CONFIG_PLUGIN_PATH) << "\",\n"
         << "      \"config\": 123\n"
         << "    }\n"
@@ -166,14 +239,16 @@ bool RunDuplicateModuleNameCase() {
     std::ostringstream config;
     config
         << "{\n"
-        << "  \"schema_version\": 1,\n"
+        << "  \"schema_version\": 2,\n"
         << "  \"modules\": [\n"
         << "    {\n"
-        << "      \"name\": \"config_test_module\",\n"
+        << "      \"name\": \"config_test_alias\",\n"
+        << "      \"type\": \"config_test_module\",\n"
         << "      \"library_path\": \"" << JsonEscape(MC_TEST_CONFIG_PLUGIN_PATH) << "\"\n"
         << "    },\n"
         << "    {\n"
-        << "      \"name\": \"config_test_module\",\n"
+        << "      \"name\": \"config_test_alias\",\n"
+        << "      \"type\": \"config_test_module\",\n"
         << "      \"library_path\": \"" << JsonEscape(MC_TEST_CONFIG_PLUGIN_PATH) << "\"\n"
         << "    }\n"
         << "  ]\n"
@@ -192,14 +267,122 @@ bool RunDuplicateModuleNameCase() {
         "LoadModules should reject duplicate module names");
 }
 
-bool RunMissingLibraryPathCase() {
+bool RunMissingTypeCase() {
+    std::ostringstream config;
+    config
+        << "{\n"
+        << "  \"schema_version\": 2,\n"
+        << "  \"modules\": [\n"
+        << "    {\n"
+        << "      \"name\": \"config_test_alias\",\n"
+        << "      \"library_path\": \"" << JsonEscape(MC_TEST_CONFIG_PLUGIN_PATH) << "\"\n"
+        << "    }\n"
+        << "  ]\n"
+        << "}\n";
+
+    if (!WriteConfigFile("module_manager_config_missing_type.json", config.str())) {
+        return false;
+    }
+
+    module_context::framework::ModuleManager manager;
+    foundation::base::Result<void> load_result =
+        manager.LoadModules(ConfigPath("module_manager_config_missing_type.json"));
+    return Expect(
+        !load_result.IsOk() &&
+            load_result.GetError() == foundation::base::ErrorCode::kParseError,
+        "LoadModules should reject entries without type");
+}
+
+bool RunEmptyTypeCase() {
+    std::ostringstream config;
+    config
+        << "{\n"
+        << "  \"schema_version\": 2,\n"
+        << "  \"modules\": [\n"
+        << "    {\n"
+        << "      \"name\": \"config_test_alias\",\n"
+        << "      \"type\": \"\",\n"
+        << "      \"library_path\": \"" << JsonEscape(MC_TEST_CONFIG_PLUGIN_PATH) << "\"\n"
+        << "    }\n"
+        << "  ]\n"
+        << "}\n";
+
+    if (!WriteConfigFile("module_manager_config_empty_type.json", config.str())) {
+        return false;
+    }
+
+    module_context::framework::ModuleManager manager;
+    foundation::base::Result<void> load_result =
+        manager.LoadModules(ConfigPath("module_manager_config_empty_type.json"));
+    return Expect(
+        !load_result.IsOk() &&
+            load_result.GetError() == foundation::base::ErrorCode::kParseError,
+        "LoadModules should reject empty type values");
+}
+
+bool RunTypeMismatchCase() {
+    std::ostringstream config;
+    config
+        << "{\n"
+        << "  \"schema_version\": 2,\n"
+        << "  \"modules\": [\n"
+        << "    {\n"
+        << "      \"name\": \"config_test_alias\",\n"
+        << "      \"type\": \"wrong_type\",\n"
+        << "      \"library_path\": \"" << JsonEscape(MC_TEST_CONFIG_PLUGIN_PATH) << "\"\n"
+        << "    }\n"
+        << "  ]\n"
+        << "}\n";
+
+    if (!WriteConfigFile("module_manager_config_type_mismatch.json", config.str())) {
+        return false;
+    }
+
+    module_context::framework::ModuleManager manager;
+    foundation::base::Result<void> load_result =
+        manager.LoadModules(ConfigPath("module_manager_config_type_mismatch.json"));
+    return Expect(
+        !load_result.IsOk() &&
+            load_result.GetError() == foundation::base::ErrorCode::kInvalidState,
+        "LoadModules should reject modules whose runtime type mismatches config type");
+}
+
+bool RunUnsupportedSchemaVersionCase() {
     std::ostringstream config;
     config
         << "{\n"
         << "  \"schema_version\": 1,\n"
         << "  \"modules\": [\n"
         << "    {\n"
-        << "      \"name\": \"config_test_module\"\n"
+        << "      \"name\": \"config_test_alias\",\n"
+        << "      \"type\": \"config_test_module\",\n"
+        << "      \"library_path\": \"" << JsonEscape(MC_TEST_CONFIG_PLUGIN_PATH) << "\"\n"
+        << "    }\n"
+        << "  ]\n"
+        << "}\n";
+
+    if (!WriteConfigFile("module_manager_config_schema_v1.json", config.str())) {
+        return false;
+    }
+
+    module_context::framework::ModuleManager manager;
+    foundation::base::Result<void> load_result =
+        manager.LoadModules(ConfigPath("module_manager_config_schema_v1.json"));
+    return Expect(
+        !load_result.IsOk() &&
+            load_result.GetError() == foundation::base::ErrorCode::kVersionMismatch,
+        "LoadModules should reject schema_version values other than 2");
+}
+
+bool RunMissingLibraryPathCase() {
+    std::ostringstream config;
+    config
+        << "{\n"
+        << "  \"schema_version\": 2,\n"
+        << "  \"modules\": [\n"
+        << "    {\n"
+        << "      \"name\": \"config_test_alias\",\n"
+        << "      \"type\": \"config_test_module\"\n"
         << "    }\n"
         << "  ]\n"
         << "}\n";
@@ -227,6 +410,18 @@ int main() {
         return 1;
     }
     if (!RunDuplicateModuleNameCase()) {
+        return 1;
+    }
+    if (!RunMissingTypeCase()) {
+        return 1;
+    }
+    if (!RunEmptyTypeCase()) {
+        return 1;
+    }
+    if (!RunTypeMismatchCase()) {
+        return 1;
+    }
+    if (!RunUnsupportedSchemaVersionCase()) {
         return 1;
     }
     if (!RunMissingLibraryPathCase()) {

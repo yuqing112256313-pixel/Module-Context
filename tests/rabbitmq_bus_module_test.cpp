@@ -2,6 +2,7 @@
 
 #include "core/api/framework/IContext.h"
 #include "core/api/framework/IModuleManager.h"
+#include "core/api/messaging/IMessageBusService.h"
 
 #include "foundation/base/ErrorCode.h"
 #include "foundation/config/ConfigValue.h"
@@ -18,6 +19,7 @@ using foundation::config::ConfigValue;
 using module_context::messaging::ConnectionState;
 using module_context::messaging::ConsumeAction;
 using module_context::messaging::IncomingMessage;
+using module_context::messaging::IMessageBusService;
 using module_context::messaging::PublishRequest;
 using module_context::messaging::RabbitMqBusModule;
 
@@ -172,13 +174,6 @@ public:
         return foundation::base::MakeSuccess();
     }
 
-    foundation::base::Result<module_context::framework::IModule*> Module(
-        const std::string&) override {
-        return foundation::base::Result<module_context::framework::IModule*>(
-            foundation::base::ErrorCode::kNotFound,
-            "No test modules are registered");
-    }
-
     foundation::base::Result<ConfigValue> ModuleConfig(
         const std::string& name) override {
         if (name != "rabbitmq_bus") {
@@ -191,6 +186,13 @@ public:
     }
 
 private:
+    foundation::base::Result<module_context::framework::IModule*> LookupModuleRaw(
+        const std::string&) override {
+        return foundation::base::Result<module_context::framework::IModule*>(
+            foundation::base::ErrorCode::kNotFound,
+            "No test modules are registered");
+    }
+
     ConfigValue module_config_;
 };
 
@@ -221,6 +223,21 @@ public:
     }
 
 private:
+    foundation::base::Result<module_context::framework::IModule*> LookupServiceRaw(
+        const char*,
+        const std::string&) override {
+        return foundation::base::Result<module_context::framework::IModule*>(
+            foundation::base::ErrorCode::kNotFound,
+            "No services are registered");
+    }
+
+    foundation::base::Result<module_context::framework::IModule*> LookupUniqueServiceRaw(
+        const char*) override {
+        return foundation::base::Result<module_context::framework::IModule*>(
+            foundation::base::ErrorCode::kNotFound,
+            "No services are registered");
+    }
+
     module_context::framework::IModuleManager* manager_;
 };
 
@@ -228,6 +245,11 @@ bool RunLifecycleCase() {
     DummyModuleManager manager(MakeRabbitMqConfig(false));
     DummyContext context(&manager);
     RabbitMqBusModule module;
+    IMessageBusService* bus_api = &module;
+
+    if (!Expect(bus_api != NULL, "RabbitMqBusModule should expose IMessageBusService")) {
+        return false;
+    }
 
     foundation::base::Result<void> init_result = module.Init(context);
     if (!Expect(init_result.IsOk(), "RabbitMqBusModule Init should succeed")) {
@@ -235,13 +257,13 @@ bool RunLifecycleCase() {
     }
 
     if (!Expect(
-            module.GetConnectionState() == ConnectionState::Created,
+            bus_api->GetConnectionState() == ConnectionState::Created,
             "Connection state should be Created after Init")) {
         return false;
     }
 
     foundation::base::Result<void> unknown_register =
-        module.RegisterConsumerHandler(
+        bus_api->RegisterConsumerHandler(
             "missing_consumer",
             [](const IncomingMessage&) { return ConsumeAction::Ack; });
     if (!Expect(
@@ -252,7 +274,7 @@ bool RunLifecycleCase() {
     }
 
     foundation::base::Result<void> register_result =
-        module.RegisterConsumerHandler(
+        bus_api->RegisterConsumerHandler(
             "task_worker",
             [](const IncomingMessage&) { return ConsumeAction::Ack; });
     if (!Expect(register_result.IsOk(), "RegisterConsumerHandler should succeed")) {
@@ -260,8 +282,13 @@ bool RunLifecycleCase() {
     }
 
     foundation::base::Result<void> unregister_result =
-        module.UnregisterConsumerHandler("task_worker");
+        bus_api->UnregisterConsumerHandler("task_worker");
     if (!Expect(unregister_result.IsOk(), "UnregisterConsumerHandler should succeed")) {
+        return false;
+    }
+
+    if (!Expect(module.ModuleType() == "rabbitmq_bus",
+                "RabbitMqBusModule should expose ModuleType")) {
         return false;
     }
 
@@ -270,7 +297,7 @@ bool RunLifecycleCase() {
     request.routing_key = "task.run";
     request.payload.push_back('x');
 
-    foundation::base::Result<void> publish_before_start = module.Publish(request);
+    foundation::base::Result<void> publish_before_start = bus_api->Publish(request);
     if (!Expect(
             !publish_before_start.IsOk() &&
                 publish_before_start.GetError() ==
@@ -285,7 +312,7 @@ bool RunLifecycleCase() {
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(60));
-    const ConnectionState state_after_start = module.GetConnectionState();
+    const ConnectionState state_after_start = bus_api->GetConnectionState();
     if (!Expect(
             state_after_start == ConnectionState::Connecting ||
                 state_after_start == ConnectionState::Reconnecting ||
@@ -294,7 +321,7 @@ bool RunLifecycleCase() {
         return false;
     }
 
-    foundation::base::Result<void> publish_after_start = module.Publish(request);
+    foundation::base::Result<void> publish_after_start = bus_api->Publish(request);
     if (!Expect(
             !publish_after_start.IsOk() &&
                 publish_after_start.GetError() ==

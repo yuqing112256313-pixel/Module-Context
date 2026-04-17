@@ -1,4 +1,6 @@
 #include "RabbitMqBusModule.h"
+#include "MessageBusServiceProxy.h"
+#include "RabbitMqBusModuleInternal.h"
 
 #include "core/api/framework/IModuleManager.h"
 #include "core/api/framework/ModuleFactory.h"
@@ -65,69 +67,6 @@ typedef int NativeSocket;
 const NativeSocket kInvalidSocket = -1;
 typedef socklen_t SocketOptionLength;
 #endif
-
-struct ReconnectConfig {
-    bool enabled;
-    int initial_delay_ms;
-    int max_delay_ms;
-
-    ReconnectConfig()
-        : enabled(true),
-          initial_delay_ms(1000),
-          max_delay_ms(30000) {
-    }
-};
-
-struct ConnectionConfig {
-    std::string uri;
-    std::uint16_t heartbeat_seconds;
-    int socket_timeout_ms;
-    ReconnectConfig reconnect;
-
-    ConnectionConfig()
-        : uri(),
-          heartbeat_seconds(30),
-          socket_timeout_ms(100) {
-    }
-};
-
-struct PublisherSpec {
-    std::string name;
-    std::string exchange;
-    std::string routing_key;
-    std::string content_type;
-    foundation::config::ConfigValue::Object headers;
-    bool persistent;
-
-    PublisherSpec()
-        : name(),
-          exchange(),
-          routing_key(),
-          content_type(),
-          headers(),
-          persistent(false) {
-    }
-};
-
-struct RabbitMqBusConfig {
-    ConnectionConfig connection;
-    std::size_t worker_thread_count;
-    std::vector<ExchangeSpec> exchanges;
-    std::vector<QueueSpec> queues;
-    std::vector<BindingSpec> bindings;
-    std::vector<PublisherSpec> publishers;
-    std::vector<ConsumerSpec> consumers;
-
-    RabbitMqBusConfig()
-        : connection(),
-          worker_thread_count(4),
-          exchanges(),
-          queues(),
-          bindings(),
-          publishers(),
-          consumers() {
-    }
-};
 
 struct PendingResult : private foundation::base::NonCopyable {
     std::promise<foundation::base::Result<void> > promise;
@@ -2421,30 +2360,64 @@ void RabbitMqConnectionDriver::HandleIncomingMessage(
     }
 }
 
-struct RabbitMqBusModule::Impl {
-    Impl()
-        : mutex(),
-          config(),
-          handlers(),
-          worker_pool(),
-          driver() {
+foundation::base::Result<void> PublishWithDriver(
+    const std::shared_ptr<RabbitMqConnectionDriver>& driver,
+    const PublishRequest& request) {
+    if (!driver) {
+        return MakeDisconnected("RabbitMQ bus module is not started");
     }
 
-    std::mutex mutex;
-    RabbitMqBusConfig config;
-    std::map<std::string, MessageHandler> handlers;
-    std::unique_ptr<foundation::concurrent::ThreadPool> worker_pool;
-    std::shared_ptr<RabbitMqConnectionDriver> driver;
-};
+    return driver->Publish(request);
+}
+
+foundation::base::Result<void> DeclareExchangeWithDriver(
+    const std::shared_ptr<RabbitMqConnectionDriver>& driver,
+    const ExchangeSpec& spec) {
+    if (!driver) {
+        return MakeDisconnected("RabbitMQ bus module is not started");
+    }
+
+    return driver->DeclareExchange(spec);
+}
+
+foundation::base::Result<void> DeclareQueueWithDriver(
+    const std::shared_ptr<RabbitMqConnectionDriver>& driver,
+    const QueueSpec& spec) {
+    if (!driver) {
+        return MakeDisconnected("RabbitMQ bus module is not started");
+    }
+
+    return driver->DeclareQueue(spec);
+}
+
+foundation::base::Result<void> BindQueueWithDriver(
+    const std::shared_ptr<RabbitMqConnectionDriver>& driver,
+    const BindingSpec& spec) {
+    if (!driver) {
+        return MakeDisconnected("RabbitMQ bus module is not started");
+    }
+
+    return driver->BindQueue(spec);
+}
+
+ConnectionState GetConnectionStateFromDriver(
+    const std::shared_ptr<RabbitMqConnectionDriver>& driver) {
+    if (!driver) {
+        return ConnectionState::Created;
+    }
+
+    return driver->GetConnectionState();
+}
 
 RabbitMqBusModule::RabbitMqBusModule()
-    : impl_(new Impl()) {
+    : shared_state_(new RabbitMqBusSharedState()),
+      service_proxy_(new MessageBusServiceProxy(shared_state_)) {
 }
 
 RabbitMqBusModule::~RabbitMqBusModule() {
 }
 
-std::string RabbitMqBusModule::ModuleName() const {
+std::string RabbitMqBusModule::ModuleType() const {
     return "rabbitmq_bus";
 }
 
@@ -2454,107 +2427,37 @@ std::string RabbitMqBusModule::ModuleVersion() const {
 
 foundation::base::Result<void> RabbitMqBusModule::Publish(
     const PublishRequest& request) {
-    std::shared_ptr<RabbitMqConnectionDriver> driver;
-    {
-        std::lock_guard<std::mutex> lock(impl_->mutex);
-        driver = impl_->driver;
-    }
-
-    if (!driver) {
-        return MakeDisconnected("RabbitMQ bus module is not started");
-    }
-
-    return driver->Publish(request);
+    return service_proxy_->Publish(request);
 }
 
 foundation::base::Result<void> RabbitMqBusModule::RegisterConsumerHandler(
     const std::string& consumer_name,
     MessageHandler handler) {
-    if (consumer_name.empty()) {
-        return MakeInvalidArgument("consumer_name must not be empty");
-    }
-    if (!handler) {
-        return MakeInvalidArgument("MessageHandler must be valid");
-    }
-
-    bool found = false;
-    for (std::size_t index = 0; index < impl_->config.consumers.size(); ++index) {
-        if (impl_->config.consumers[index].name == consumer_name) {
-            found = true;
-            break;
-        }
-    }
-    if (!found) {
-        return foundation::base::Result<void>(
-            foundation::base::ErrorCode::kNotFound,
-            "Unknown consumer '" + consumer_name + "'");
-    }
-
-    std::lock_guard<std::mutex> lock(impl_->mutex);
-    impl_->handlers[consumer_name] = handler;
-    return foundation::base::MakeSuccess();
+    return service_proxy_->RegisterConsumerHandler(consumer_name, handler);
 }
 
 foundation::base::Result<void> RabbitMqBusModule::UnregisterConsumerHandler(
     const std::string& consumer_name) {
-    std::lock_guard<std::mutex> lock(impl_->mutex);
-    std::map<std::string, MessageHandler>::iterator it =
-        impl_->handlers.find(consumer_name);
-    if (it == impl_->handlers.end()) {
-        return foundation::base::Result<void>(
-            foundation::base::ErrorCode::kNotFound,
-            "Consumer handler '" + consumer_name + "' is not registered");
-    }
-
-    impl_->handlers.erase(it);
-    return foundation::base::MakeSuccess();
+    return service_proxy_->UnregisterConsumerHandler(consumer_name);
 }
 
 foundation::base::Result<void> RabbitMqBusModule::DeclareExchange(
     const ExchangeSpec& spec) {
-    std::shared_ptr<RabbitMqConnectionDriver> driver;
-    {
-        std::lock_guard<std::mutex> lock(impl_->mutex);
-        driver = impl_->driver;
-    }
-    if (!driver) {
-        return MakeDisconnected("RabbitMQ bus module is not started");
-    }
-    return driver->DeclareExchange(spec);
+    return service_proxy_->DeclareExchange(spec);
 }
 
 foundation::base::Result<void> RabbitMqBusModule::DeclareQueue(
     const QueueSpec& spec) {
-    std::shared_ptr<RabbitMqConnectionDriver> driver;
-    {
-        std::lock_guard<std::mutex> lock(impl_->mutex);
-        driver = impl_->driver;
-    }
-    if (!driver) {
-        return MakeDisconnected("RabbitMQ bus module is not started");
-    }
-    return driver->DeclareQueue(spec);
+    return service_proxy_->DeclareQueue(spec);
 }
 
 foundation::base::Result<void> RabbitMqBusModule::BindQueue(
     const BindingSpec& spec) {
-    std::shared_ptr<RabbitMqConnectionDriver> driver;
-    {
-        std::lock_guard<std::mutex> lock(impl_->mutex);
-        driver = impl_->driver;
-    }
-    if (!driver) {
-        return MakeDisconnected("RabbitMQ bus module is not started");
-    }
-    return driver->BindQueue(spec);
+    return service_proxy_->BindQueue(spec);
 }
 
 ConnectionState RabbitMqBusModule::GetConnectionState() const {
-    std::lock_guard<std::mutex> lock(impl_->mutex);
-    if (!impl_->driver) {
-        return ConnectionState::Created;
-    }
-    return impl_->driver->GetConnectionState();
+    return service_proxy_->GetConnectionState();
 }
 
 foundation::base::Result<void> RabbitMqBusModule::OnInit() {
@@ -2581,40 +2484,63 @@ foundation::base::Result<void> RabbitMqBusModule::OnInit() {
             parsed.GetMessage());
     }
 
-    impl_->config = parsed.Value();
-    impl_->worker_pool.reset(new foundation::concurrent::ThreadPool(
-        impl_->config.worker_thread_count));
-    impl_->driver.reset();
+    std::shared_ptr<RabbitMqBusConfig> parsed_config(
+        new RabbitMqBusConfig(parsed.Value()));
+    std::shared_ptr<foundation::concurrent::ThreadPool> worker_pool(
+        new foundation::concurrent::ThreadPool(parsed_config->worker_thread_count));
+    {
+        std::lock_guard<std::mutex> lock(shared_state_->mutex);
+        shared_state_->config = parsed_config;
+        shared_state_->handlers.clear();
+        shared_state_->worker_pool = worker_pool;
+        shared_state_->driver.reset();
+    }
+
     return foundation::base::MakeSuccess();
 }
 
 foundation::base::Result<void> RabbitMqBusModule::OnStart() {
-    if (!impl_->worker_pool) {
-        return MakeInvalidState("RabbitMQ bus module is not initialized");
+    std::shared_ptr<RabbitMqBusConfig> config;
+    std::shared_ptr<foundation::concurrent::ThreadPool> worker_pool;
+    {
+        std::lock_guard<std::mutex> lock(shared_state_->mutex);
+        config = shared_state_->config;
+        worker_pool = shared_state_->worker_pool;
     }
 
-    foundation::base::Result<void> pool_start = impl_->worker_pool->Start();
+    if (!worker_pool) {
+        return MakeInvalidState("RabbitMQ bus module is not initialized");
+    }
+    if (!config) {
+        return MakeInvalidState("RabbitMQ bus configuration is unavailable");
+    }
+
+    foundation::base::Result<void> pool_start = worker_pool->Start();
     if (!pool_start.IsOk()) {
         return pool_start;
     }
 
+    std::shared_ptr<RabbitMqBusSharedState> state = shared_state_;
     std::shared_ptr<RabbitMqConnectionDriver> driver(
         new RabbitMqConnectionDriver(
-            impl_->config,
-            [this](const IncomingMessage& incoming, const DeliveryContext& delivery) {
+            *config,
+            [state](const IncomingMessage& incoming,
+                    const DeliveryContext& delivery) {
                 MessageHandler handler;
                 std::shared_ptr<RabbitMqConnectionDriver> driver_ref;
+                std::shared_ptr<foundation::concurrent::ThreadPool> worker_pool_ref;
                 {
-                    std::lock_guard<std::mutex> lock(impl_->mutex);
+                    std::lock_guard<std::mutex> lock(state->mutex);
                     std::map<std::string, MessageHandler>::iterator it =
-                        impl_->handlers.find(incoming.consumer_name);
-                    if (it != impl_->handlers.end()) {
+                        state->handlers.find(incoming.consumer_name);
+                    if (it != state->handlers.end()) {
                         handler = it->second;
                     }
-                    driver_ref = impl_->driver;
+                    driver_ref = state->driver;
+                    worker_pool_ref = state->worker_pool;
                 }
 
-                if (!impl_->worker_pool) {
+                if (!worker_pool_ref) {
                     if (!delivery.auto_ack && driver_ref) {
                         LogResultIfError(
                             driver_ref->CompleteDelivery(
@@ -2626,7 +2552,7 @@ foundation::base::Result<void> RabbitMqBusModule::OnStart() {
                 }
 
                 foundation::base::Result<std::future<void> > submitted =
-                    impl_->worker_pool->Submit(
+                    worker_pool_ref->Submit(
                         [incoming, delivery, handler, driver_ref]() {
                             ConsumeAction action = ConsumeAction::Requeue;
                             if (handler) {
@@ -2664,17 +2590,17 @@ foundation::base::Result<void> RabbitMqBusModule::OnStart() {
             }));
 
     {
-        std::lock_guard<std::mutex> lock(impl_->mutex);
-        impl_->driver = driver;
+        std::lock_guard<std::mutex> lock(shared_state_->mutex);
+        shared_state_->driver = driver;
     }
 
     foundation::base::Result<void> start_result = driver->Start();
     if (!start_result.IsOk()) {
         {
-            std::lock_guard<std::mutex> lock(impl_->mutex);
-            impl_->driver.reset();
+            std::lock_guard<std::mutex> lock(shared_state_->mutex);
+            shared_state_->driver.reset();
         }
-        (void)impl_->worker_pool->ShutdownNow();
+        (void)worker_pool->ShutdownNow();
         return start_result;
     }
 
@@ -2684,9 +2610,11 @@ foundation::base::Result<void> RabbitMqBusModule::OnStart() {
 foundation::base::Result<void> RabbitMqBusModule::OnStop() {
     foundation::base::Result<void> first_error = foundation::base::MakeSuccess();
     std::shared_ptr<RabbitMqConnectionDriver> driver;
+    std::shared_ptr<foundation::concurrent::ThreadPool> worker_pool;
     {
-        std::lock_guard<std::mutex> lock(impl_->mutex);
-        driver = impl_->driver;
+        std::lock_guard<std::mutex> lock(shared_state_->mutex);
+        driver = shared_state_->driver;
+        worker_pool = shared_state_->worker_pool;
     }
 
     if (driver) {
@@ -2696,8 +2624,8 @@ foundation::base::Result<void> RabbitMqBusModule::OnStop() {
         }
     }
 
-    if (impl_->worker_pool) {
-        foundation::base::Result<void> pool_result = impl_->worker_pool->Shutdown();
+    if (worker_pool) {
+        foundation::base::Result<void> pool_result = worker_pool->Shutdown();
         if (first_error.IsOk() && !pool_result.IsOk()) {
             first_error = pool_result;
         }
@@ -2707,11 +2635,11 @@ foundation::base::Result<void> RabbitMqBusModule::OnStop() {
 }
 
 foundation::base::Result<void> RabbitMqBusModule::OnFini() {
-    std::lock_guard<std::mutex> lock(impl_->mutex);
-    impl_->handlers.clear();
-    impl_->driver.reset();
-    impl_->worker_pool.reset();
-    impl_->config = RabbitMqBusConfig();
+    std::lock_guard<std::mutex> lock(shared_state_->mutex);
+    shared_state_->handlers.clear();
+    shared_state_->driver.reset();
+    shared_state_->worker_pool.reset();
+    shared_state_->config.reset(new RabbitMqBusConfig());
     return foundation::base::MakeSuccess();
 }
 

@@ -3,6 +3,8 @@
 #include "core/api/framework/IModule.h"
 #include "core/api/framework/IModuleManager.h"
 
+#include "framework/ServiceFactory.h"
+
 #include "foundation/base/NonCopyable.h"
 #include "foundation/base/Result.h"
 #include "foundation/config/ConfigValue.h"
@@ -19,7 +21,6 @@ class ModuleManager final
     : public IModuleManager,
       private foundation::base::NonCopyable {
 public:
-    /// 默认实现：负责插件加载、生命周期转发与模块查询。
     ModuleManager();
     ~ModuleManager() override;
 
@@ -34,19 +35,25 @@ public:
     foundation::base::Result<void> Stop() override;
     foundation::base::Result<void> Fini() override;
 
-    foundation::base::Result<IModule*> Module(
-        const std::string& name) override;
     foundation::base::Result<foundation::config::ConfigValue> ModuleConfig(
         const std::string& name) override;
+    foundation::base::Result<IModule*> LookupNamedService(
+        const std::string& service_key,
+        const std::string& name);
+    foundation::base::Result<IModule*> LookupUniqueService(
+        const std::string& service_key);
 
 private:
     typedef foundation::plugin::PluginLoader<IModule> ModuleLoader;
     typedef ModuleLoader::PluginHandle ModuleHandle;
 
-    /// 打开动态库并创建模块句柄（已校验插件 API 版本）。
     foundation::base::Result<ModuleHandle> CreateModuleHandle(
         const std::string& normalized_library_path);
-    /// 将模块保存到映射表，并记录生命周期执行顺序。
+    foundation::base::Result<IModule*> LookupModuleRaw(
+        const std::string& name) override;
+    void RegisterKnownServices(
+        const std::string& name,
+        IModule* module);
     void StoreLoadedModule(
         const std::string& name,
         ModuleHandle module);
@@ -59,6 +66,7 @@ private:
     ModuleMap modules_by_name_;
     ModuleConfigMap configs_by_name_;
     ModuleOrder module_order_;
+    ServiceFactory service_factory_;
 };
 
 }  // namespace framework
