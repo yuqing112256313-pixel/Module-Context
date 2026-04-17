@@ -1,24 +1,22 @@
 #pragma once
 
-#include "core/api/framework/Export.h"
-#include "core/api/framework/IModule.h"
+#include "module_context/framework/Export.h"
+#include "module_context/framework/IModule.h"
 
 namespace module_context {
 namespace framework {
 
-/// 插件 API 版本号。宿主加载时会校验版本一致性。
+/// 插件 ABI 版本号，宿主在加载插件时会校验一致性。
 static const int kModulePluginApiVersion = 2;
 
-// This header intentionally remains a tiny C-ABI export shim instead of
-// reusing foundation::patterns::Factory. PluginLoader discovers modules across
-// a shared-library boundary through fixed exported symbols, while Factory is an
-// in-process registry of C++ creators.
+// 该头文件只提供最小 C ABI 导出封装。
+// 插件通过固定符号跨动态库边界暴露创建/销毁入口，不复用进程内注册型工厂。
 
 /**
- * @brief 声明插件工厂导出符号（带自定义 API 版本）。
+ * @brief 声明插件工厂导出符号，并指定自定义 ABI 版本。
  *
  * @param ModuleType 具体模块类型（需实现 IModule）。
- * @param ApiVersion 插件 API 版本号。
+ * @param ApiVersion 插件 ABI 版本号。
  */
 #define MC_DECLARE_MODULE_FACTORY_WITH_API_VERSION(ModuleType, ApiVersion)          \
     extern "C" MC_PLUGIN_EXPORT int GetPluginApiVersion() {                         \
@@ -34,7 +32,7 @@ static const int kModulePluginApiVersion = 2;
     }
 
 /**
- * @brief 声明插件工厂导出符号（使用默认 API 版本）。
+ * @brief 声明插件工厂导出符号，并使用默认 ABI 版本。
  */
 #define MC_DECLARE_MODULE_FACTORY(ModuleType)                                       \
     MC_DECLARE_MODULE_FACTORY_WITH_API_VERSION(                                     \

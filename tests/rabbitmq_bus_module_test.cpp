@@ -1,8 +1,8 @@
 #include "RabbitMqBusModule.h"
 
-#include "core/api/framework/IContext.h"
-#include "core/api/framework/IModuleManager.h"
-#include "core/api/messaging/IMessageBusService.h"
+#include "module_context/framework/IContext.h"
+#include "module_context/framework/IModuleManager.h"
+#include "module_context/messaging/IMessageBusService.h"
 
 #include "foundation/base/ErrorCode.h"
 #include "foundation/config/ConfigValue.h"

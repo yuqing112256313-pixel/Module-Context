@@ -1,9 +1,9 @@
 #pragma once
 
-#include "core/api/framework/IModule.h"
-#include "core/api/framework/IModuleManager.h"
+#include "module_context/framework/IModule.h"
+#include "module_context/framework/IModuleManager.h"
 
-#include "framework/ServiceFactory.h"
+#include "framework/ServiceRegistry.h"
 
 #include "foundation/base/NonCopyable.h"
 #include "foundation/base/Result.h"
@@ -66,7 +66,7 @@ private:
     ModuleMap modules_by_name_;
     ModuleConfigMap configs_by_name_;
     ModuleOrder module_order_;
-    ServiceFactory service_factory_;
+    ServiceRegistry service_registry_;
 };
 
 }  // namespace framework

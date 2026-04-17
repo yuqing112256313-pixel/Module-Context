@@ -1,6 +1,6 @@
 #include "framework/ModuleManager.h"
 
-#include "core/api/framework/IContext.h"
+#include "module_context/framework/IContext.h"
 
 #include "foundation/base/ErrorCode.h"
 #include "foundation/config/ConfigValue.h"

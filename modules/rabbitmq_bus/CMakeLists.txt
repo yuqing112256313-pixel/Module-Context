@@ -1,6 +1,6 @@
 set(RABBITMQ_BUS_SOURCES
-    MessageBusServiceProxy.cpp
-    RabbitMqBusModule.cpp
+    src/internal/MessageBusServiceProxy.cpp
+    src/RabbitMqBusModule.cpp
 )
 
 add_library(rabbitmq_bus SHARED
@@ -14,8 +14,8 @@ target_compile_definitions(rabbitmq_bus
 
 target_include_directories(rabbitmq_bus
     PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/../..
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/internal
         ${CMAKE_CURRENT_SOURCE_DIR}/../../include
         ${CMAKE_CURRENT_SOURCE_DIR}/../../src
 )

@@ -1,7 +1,6 @@
 #include "framework/ModuleManager.h"
 
-#include "core/api/framework/IContext.h"
-#include "core/api/messaging/IMessageBusService.h"
+#include "module_context/framework/IContext.h"
 
 #include "foundation/base/ErrorCode.h"
 #include "foundation/config/ConfigReader.h"
@@ -9,7 +8,7 @@
 #include "foundation/base/Result.h"
 #include "foundation/filesystem/PathUtils.h"
 
-#include "core/api/framework/ModuleFactory.h"
+#include "plugin/ModuleFactory.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -334,7 +333,7 @@ ModuleManager::ModuleManager()
     : modules_by_name_(),
       configs_by_name_(),
       module_order_(),
-      service_factory_() {
+      service_registry_() {
 }
 
 ModuleManager::~ModuleManager() {
@@ -590,7 +589,7 @@ foundation::base::Result<void> ModuleManager::Fini() {
     }
 
     // 完成反初始化后清空容器，释放句柄并重置管理器状态。
-    service_factory_.Clear();
+    service_registry_.Clear();
     modules_by_name_.clear();
     configs_by_name_.clear();
     module_order_.clear();
@@ -636,27 +635,18 @@ ModuleManager::ModuleConfig(const std::string& name) {
 foundation::base::Result<IModule*> ModuleManager::LookupNamedService(
     const std::string& service_key,
     const std::string& name) {
-    return service_factory_.Lookup(service_key, name);
+    return service_registry_.Lookup(service_key, name);
 }
 
 foundation::base::Result<IModule*> ModuleManager::LookupUniqueService(
     const std::string& service_key) {
-    return service_factory_.LookupUnique(service_key);
+    return service_registry_.LookupUnique(service_key);
 }
 
 void ModuleManager::RegisterKnownServices(
     const std::string& name,
     IModule* module) {
-    if (module == NULL) {
-        return;
-    }
-
-    if (dynamic_cast<module_context::messaging::IMessageBusService*>(module) != NULL) {
-        service_factory_.Register(
-            ServiceTypeTraits<module_context::messaging::IMessageBusService>::Key(),
-            name,
-            module);
-    }
+    service_registry_.RegisterKnownServices(name, module);
 }
 
 }  // namespace framework

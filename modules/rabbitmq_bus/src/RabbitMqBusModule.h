@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/api/messaging/IMessageBusService.h"
+#include "module_context/messaging/IMessageBusService.h"
 #include "framework/ModuleBase.h"
 
 #include "foundation/base/Result.h"

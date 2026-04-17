@@ -8,11 +8,14 @@
 #endif
 
 #include "RabbitMqBusModule.h"
-#include "MessageBusServiceProxy.h"
-#include "RabbitMqBusModuleInternal.h"
+#include "internal/ConfigTypes.h"
+#include "internal/DriverOps.h"
+#include "internal/MessageBusServiceProxy.h"
+#include "internal/SharedState.h"
 
-#include "core/api/framework/IModuleManager.h"
-#include "core/api/framework/ModuleFactory.h"
+#include "module_context/framework/IModuleManager.h"
+
+#include "plugin/ModuleFactory.h"
 
 #include "foundation/base/ErrorCode.h"
 #include "foundation/base/NonCopyable.h"

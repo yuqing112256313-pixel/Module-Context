@@ -1,6 +1,6 @@
 #include "framework/ModuleBase.h"
 
-#include "core/api/framework/IModuleManager.h"
+#include "module_context/framework/IModuleManager.h"
 
 #include "foundation/base/ErrorCode.h"
 #include "foundation/base/Result.h"

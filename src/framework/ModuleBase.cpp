@@ -9,17 +9,16 @@ namespace framework {
 
 namespace {
 
-// The table order must match ModuleState exactly, and enum values must stay
-// contiguous starting from 0.
+// 状态表顺序必须与 ModuleState 枚举值完全一致，且枚举值必须从 0 连续递增。
 const int kModuleStateCount = static_cast<int>(ModuleState::Fini) + 1;
 
 const bool kValidTransitions[kModuleStateCount][kModuleStateCount] = {
-    // to:    Created  Inited  Started  Stopped  Fini
-    /* from Created */ {false, true,   false,   false,   true},
-    /* from Inited  */ {false, false,  true,    false,   true},
-    /* from Started */ {false, false,  false,   true,    true},
-    /* from Stopped */ {false, false,  true,    false,   true},
-    /* from Fini    */ {false, true,   false,   false,   false}
+    // 列表示目标状态，行表示当前状态。
+    /* 当前为 Created */ {false, true,   false,   false,   true},
+    /* 当前为 Inited  */ {false, false,  true,    false,   true},
+    /* 当前为 Started */ {false, false,  false,   true,    true},
+    /* 当前为 Stopped */ {false, false,  true,    false,   true},
+    /* 当前为 Fini    */ {false, true,   false,   false,   false}
 };
 
 foundation::base::Result<void> MakeStateError(

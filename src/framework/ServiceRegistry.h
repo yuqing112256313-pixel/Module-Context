@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/api/framework/IModule.h"
+#include "module_context/framework/IModule.h"
 
 #include "foundation/base/NonCopyable.h"
 #include "foundation/base/Result.h"
@@ -11,13 +11,16 @@
 namespace module_context {
 namespace framework {
 
-class ServiceFactory : private foundation::base::NonCopyable {
+class ServiceRegistry : private foundation::base::NonCopyable {
 public:
-    ServiceFactory();
-    ~ServiceFactory();
+    ServiceRegistry();
+    ~ServiceRegistry();
 
     void Register(
         const std::string& service_key,
+        const std::string& name,
+        IModule* provider);
+    void RegisterKnownServices(
         const std::string& name,
         IModule* provider);
     foundation::base::Result<IModule*> Lookup(

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "core/api/framework/IContext.h"
-#include "core/api/framework/IModule.h"
+#include "module_context/framework/IContext.h"
+#include "module_context/framework/IModule.h"
 
 #include "foundation/base/NonCopyable.h"
 #include "foundation/base/Result.h"

@@ -157,18 +157,17 @@ add_library(mc_core_framework SHARED
     src/framework/Context.cpp
     src/framework/ModuleBase.cpp
     src/framework/ModuleManager.cpp
-    src/framework/ServiceFactory.cpp
+    src/framework/ServiceRegistry.cpp
 )
 
 set(MC_CORE_FRAMEWORK_PUBLIC_HEADERS
-    include/core/api/framework/Export.h
-    include/core/api/framework/IContext.h
-    include/core/api/framework/IModule.h
-    include/core/api/framework/IModuleManager.h
-    include/core/api/framework/ModuleFactory.h
-    include/core/api/framework/ModuleState.h
-    include/core/api/messaging/IMessageBusService.h
-    include/core/api/messaging/Types.h
+    include/module_context/framework/Export.h
+    include/module_context/framework/IContext.h
+    include/module_context/framework/IModule.h
+    include/module_context/framework/IModuleManager.h
+    include/module_context/framework/ModuleState.h
+    include/module_context/messaging/IMessageBusService.h
+    include/module_context/messaging/Types.h
 )
 
 target_compile_definitions(mc_core_framework
@@ -206,22 +205,21 @@ install(TARGETS mc_core_framework
 
 install(
     FILES
-        include/core/api/framework/Export.h
-        include/core/api/framework/IContext.h
-        include/core/api/framework/IModule.h
-        include/core/api/framework/IModuleManager.h
-        include/core/api/framework/ModuleFactory.h
-        include/core/api/framework/ModuleState.h
+        include/module_context/framework/Export.h
+        include/module_context/framework/IContext.h
+        include/module_context/framework/IModule.h
+        include/module_context/framework/IModuleManager.h
+        include/module_context/framework/ModuleState.h
     DESTINATION
-        ${CMAKE_INSTALL_INCLUDEDIR}/core/api/framework
+        ${CMAKE_INSTALL_INCLUDEDIR}/module_context/framework
 )
 
 install(
     FILES
-        include/core/api/messaging/IMessageBusService.h
-        include/core/api/messaging/Types.h
+        include/module_context/messaging/IMessageBusService.h
+        include/module_context/messaging/Types.h
     DESTINATION
-        ${CMAKE_INSTALL_INCLUDEDIR}/core/api/messaging
+        ${CMAKE_INSTALL_INCLUDEDIR}/module_context/messaging
 )
 
 if(MC_BUILD_EXAMPLES AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples/CMakeLists.txt")

@@ -75,15 +75,16 @@ add_test(
 if(TARGET rabbitmq_bus)
     add_executable(mc_rabbitmq_bus_module_test
         rabbitmq_bus_module_test.cpp
-        ../modules/rabbitmq_bus/MessageBusServiceProxy.cpp
-        ../modules/rabbitmq_bus/RabbitMqBusModule.cpp
+        ../modules/rabbitmq_bus/src/internal/MessageBusServiceProxy.cpp
+        ../modules/rabbitmq_bus/src/RabbitMqBusModule.cpp
     )
 
     mc_configure_test_target(mc_rabbitmq_bus_module_test)
 
     target_include_directories(mc_rabbitmq_bus_module_test
         PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/../modules/rabbitmq_bus
+            ${CMAKE_CURRENT_SOURCE_DIR}/../modules/rabbitmq_bus/src
+            ${CMAKE_CURRENT_SOURCE_DIR}/../modules/rabbitmq_bus/src/internal
     )
 
     target_link_libraries(mc_rabbitmq_bus_module_test

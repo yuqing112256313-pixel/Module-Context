@@ -1,15 +1,11 @@
 #pragma once
 
-#include "core/api/messaging/IMessageBusService.h"
+#include "module_context/messaging/Types.h"
 
-#include "foundation/base/Result.h"
-#include "foundation/concurrent/ThreadPool.h"
 #include "foundation/config/ConfigValue.h"
 
-#include <map>
+#include <cstddef>
 #include <cstdint>
-#include <memory>
-#include <mutex>
 #include <string>
 #include <vector>
 
@@ -78,39 +74,6 @@ struct RabbitMqBusConfig {
           consumers() {
     }
 };
-
-class RabbitMqConnectionDriver;
-
-struct RabbitMqBusSharedState {
-    RabbitMqBusSharedState()
-        : mutex(),
-          config(new RabbitMqBusConfig()),
-          handlers(),
-          worker_pool(),
-          driver() {
-    }
-
-    std::mutex mutex;
-    std::shared_ptr<RabbitMqBusConfig> config;
-    std::map<std::string, MessageHandler> handlers;
-    std::shared_ptr<foundation::concurrent::ThreadPool> worker_pool;
-    std::shared_ptr<RabbitMqConnectionDriver> driver;
-};
-
-foundation::base::Result<void> PublishWithDriver(
-    const std::shared_ptr<RabbitMqConnectionDriver>& driver,
-    const PublishRequest& request);
-foundation::base::Result<void> DeclareExchangeWithDriver(
-    const std::shared_ptr<RabbitMqConnectionDriver>& driver,
-    const ExchangeSpec& spec);
-foundation::base::Result<void> DeclareQueueWithDriver(
-    const std::shared_ptr<RabbitMqConnectionDriver>& driver,
-    const QueueSpec& spec);
-foundation::base::Result<void> BindQueueWithDriver(
-    const std::shared_ptr<RabbitMqConnectionDriver>& driver,
-    const BindingSpec& spec);
-ConnectionState GetConnectionStateFromDriver(
-    const std::shared_ptr<RabbitMqConnectionDriver>& driver);
 
 }  // namespace messaging
 }  // namespace module_context

@@ -1,6 +1,7 @@
 #include "MessageBusServiceProxy.h"
 
-#include "RabbitMqBusModuleInternal.h"
+#include "DriverOps.h"
+#include "SharedState.h"
 
 #include "foundation/base/ErrorCode.h"
 
