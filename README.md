@@ -210,6 +210,8 @@ foundation::base::Result<module_context::messaging::IMessageBusService*> bus =
 
 更多架构说明见 [docs/architecture.md](docs/architecture.md)。
 
+模块开发规范与落地步骤见 [docs/module_development_manual.md](docs/module_development_manual.md)。
+
 ## 示例与测试
 
 - `examples/basic_context_lifecycle.cpp`：最小上下文生命周期示例。
