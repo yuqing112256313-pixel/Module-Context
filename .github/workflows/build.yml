@@ -37,12 +37,16 @@ jobs:
       - name: Collect Windows artifacts
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path artifacts/include/core/api/framework | Out-Null
+          New-Item -ItemType Directory -Force -Path artifacts/include/module_context/framework | Out-Null
+          New-Item -ItemType Directory -Force -Path artifacts/include/module_context/messaging | Out-Null
           New-Item -ItemType Directory -Force -Path artifacts/lib | Out-Null
           New-Item -ItemType Directory -Force -Path artifacts/bin | Out-Null
 
-          Get-ChildItem -Path "$env:STAGE_DIR/include/core/api/framework" -Recurse -File -Filter *.h |
-            Copy-Item -Destination "artifacts/include/core/api/framework" -Force
+          Get-ChildItem -Path "$env:STAGE_DIR/include/module_context/framework" -Recurse -File -Filter *.h |
+            Copy-Item -Destination "artifacts/include/module_context/framework" -Force
+
+          Get-ChildItem -Path "$env:STAGE_DIR/include/module_context/messaging" -Recurse -File -Filter *.h |
+            Copy-Item -Destination "artifacts/include/module_context/messaging" -Force
 
           Get-ChildItem -Path $env:STAGE_DIR -Recurse -File -Filter "mc_core_framework*.lib" |
             Copy-Item -Destination "artifacts/lib" -Force
@@ -60,12 +64,16 @@ jobs:
       - name: Collect Windows debug artifacts
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path artifacts-debug/include/core/api/framework | Out-Null
+          New-Item -ItemType Directory -Force -Path artifacts-debug/include/module_context/framework | Out-Null
+          New-Item -ItemType Directory -Force -Path artifacts-debug/include/module_context/messaging | Out-Null
           New-Item -ItemType Directory -Force -Path artifacts-debug/lib | Out-Null
           New-Item -ItemType Directory -Force -Path artifacts-debug/bin | Out-Null
 
-          Get-ChildItem -Path "$env:STAGE_DEBUG_DIR/include/core/api/framework" -Recurse -File -Filter *.h |
-            Copy-Item -Destination "artifacts-debug/include/core/api/framework" -Force
+          Get-ChildItem -Path "$env:STAGE_DEBUG_DIR/include/module_context/framework" -Recurse -File -Filter *.h |
+            Copy-Item -Destination "artifacts-debug/include/module_context/framework" -Force
+
+          Get-ChildItem -Path "$env:STAGE_DEBUG_DIR/include/module_context/messaging" -Recurse -File -Filter *.h |
+            Copy-Item -Destination "artifacts-debug/include/module_context/messaging" -Force
 
           Get-ChildItem -Path $env:STAGE_DEBUG_DIR -Recurse -File -Filter "mc_core_framework*d.lib" |
             Copy-Item -Destination "artifacts-debug/lib" -Force
