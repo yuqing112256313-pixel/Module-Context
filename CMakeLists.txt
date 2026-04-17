@@ -30,11 +30,11 @@ set(MC_AMQP_CPP_SOURCE_DIR
     CACHE PATH
     "Optional local AMQP-CPP source directory. Can point to the repo root or the directory that contains CMakeLists.txt.")
 set(MC_AMQP_CPP_GIT_REPOSITORY
-    "https://github.com/CopernicaMarketingSoftware/AMQP-CPP.git"
+    "https://github.com/yuqing112256313-pixel/AMQP-CPP-CXX11.git"
     CACHE STRING
     "Git repository used when AMQP-CPP must be fetched automatically.")
 set(MC_AMQP_CPP_GIT_TAG
-    "v4.3.19"
+    "main"
     CACHE STRING
     "Git ref used when AMQP-CPP must be fetched automatically.")
 

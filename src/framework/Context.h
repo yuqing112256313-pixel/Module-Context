@@ -34,7 +34,7 @@ private:
         const char* service_key) override;
 
 private:
-    std::unique_ptr<ModuleManager> module_manager_;
+    std::unique_ptr<module_context::framework::ModuleManager> module_manager_;
 };
 
 }  // namespace framework

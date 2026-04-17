@@ -1,3 +1,12 @@
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#endif
+
 #include "RabbitMqBusModule.h"
 #include "MessageBusServiceProxy.h"
 #include "RabbitMqBusModuleInternal.h"
@@ -33,15 +42,18 @@
 #include <vector>
 
 #if FOUNDATION_PLATFORM_WINDOWS
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
 #include <winsock2.h>
 #include <windows.h>
 #include <ws2tcpip.h>
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
+#ifdef GetMessage
+#undef GetMessage
+#endif
 #else
 #include <arpa/inet.h>
 #include <errno.h>
@@ -1271,6 +1283,8 @@ struct ConsumerRuntime {
           active(false) {
     }
 };
+
+}  // namespace
 
 class RabbitMqConnectionDriver : public AMQP::ConnectionHandler,
                                  private foundation::base::NonCopyable {
@@ -2645,6 +2659,5 @@ foundation::base::Result<void> RabbitMqBusModule::OnFini() {
 
 MC_DECLARE_MODULE_FACTORY(RabbitMqBusModule)
 
-}  // namespace
 }  // namespace messaging
 }  // namespace module_context

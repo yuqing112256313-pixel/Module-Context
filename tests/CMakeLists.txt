@@ -34,25 +34,27 @@ target_link_libraries(mc_module_base_lifecycle_test
 
 add_library(mc_test_config_plugin SHARED
     module_manager_config_test_plugin.cpp
+    ../src/framework/ModuleBase.cpp
 )
 
 mc_configure_test_target(mc_test_config_plugin)
 
 target_link_libraries(mc_test_config_plugin
     PRIVATE
-        mc_core_framework
         foundation::foundation
 )
 
 add_executable(mc_module_manager_config_test
     module_manager_config_test.cpp
+    ../src/framework/ModuleBase.cpp
+    ../src/framework/ModuleManager.cpp
+    ../src/framework/ServiceFactory.cpp
 )
 
 mc_configure_test_target(mc_module_manager_config_test)
 
 target_link_libraries(mc_module_manager_config_test
     PRIVATE
-        mc_core_framework
         foundation::foundation
 )
 
@@ -99,13 +101,16 @@ if(TARGET rabbitmq_bus)
 
     add_executable(mc_rabbitmq_bus_plugin_integration_test
         rabbitmq_bus_plugin_integration_test.cpp
+        ../src/framework/Context.cpp
+        ../src/framework/ModuleBase.cpp
+        ../src/framework/ModuleManager.cpp
+        ../src/framework/ServiceFactory.cpp
     )
 
     mc_configure_test_target(mc_rabbitmq_bus_plugin_integration_test)
 
     target_link_libraries(mc_rabbitmq_bus_plugin_integration_test
         PRIVATE
-            mc_core_framework
             foundation::foundation
     )
 
