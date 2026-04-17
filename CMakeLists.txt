@@ -11,6 +11,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(MC_BUILD_EXAMPLES "Build examples targets" ON)
 option(MC_BUILD_TESTS "Build test targets" ON)
+option(MC_BUILD_RABBITMQ_MODULE "Build RabbitMQ message bus module" ON)
 
 set(MC_FOUNDATION_SOURCE_DIR
     ""
@@ -24,6 +25,18 @@ set(MC_FOUNDATION_GIT_TAG
     "main"
     CACHE STRING
     "Git ref used when foundation must be fetched automatically.")
+set(MC_AMQP_CPP_SOURCE_DIR
+    ""
+    CACHE PATH
+    "Optional local AMQP-CPP source directory. Can point to the repo root or the directory that contains CMakeLists.txt.")
+set(MC_AMQP_CPP_GIT_REPOSITORY
+    "https://github.com/CopernicaMarketingSoftware/AMQP-CPP.git"
+    CACHE STRING
+    "Git repository used when AMQP-CPP must be fetched automatically.")
+set(MC_AMQP_CPP_GIT_TAG
+    "v4.3.19"
+    CACHE STRING
+    "Git ref used when AMQP-CPP must be fetched automatically.")
 
 function(mc_prepare_foundation_build_options)
     set(FOUNDATION_BUILD_SHARED OFF CACHE BOOL "" FORCE)
@@ -153,6 +166,8 @@ set(MC_CORE_FRAMEWORK_PUBLIC_HEADERS
     include/core/api/framework/IModuleManager.h
     include/core/api/framework/ModuleFactory.h
     include/core/api/framework/ModuleState.h
+    include/core/api/messaging/IMessageBusService.h
+    include/core/api/messaging/Types.h
 )
 
 target_compile_definitions(mc_core_framework
@@ -190,13 +205,30 @@ install(TARGETS mc_core_framework
 
 install(
     FILES
-        ${MC_CORE_FRAMEWORK_PUBLIC_HEADERS}
+        include/core/api/framework/Export.h
+        include/core/api/framework/IContext.h
+        include/core/api/framework/IModule.h
+        include/core/api/framework/IModuleManager.h
+        include/core/api/framework/ModuleFactory.h
+        include/core/api/framework/ModuleState.h
     DESTINATION
         ${CMAKE_INSTALL_INCLUDEDIR}/core/api/framework
 )
 
+install(
+    FILES
+        include/core/api/messaging/IMessageBusService.h
+        include/core/api/messaging/Types.h
+    DESTINATION
+        ${CMAKE_INSTALL_INCLUDEDIR}/core/api/messaging
+)
+
 if(MC_BUILD_EXAMPLES AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples/CMakeLists.txt")
     add_subdirectory(examples)
+endif()
+
+if(MC_BUILD_RABBITMQ_MODULE AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/modules/CMakeLists.txt")
+    add_subdirectory(modules)
 endif()
 
 if(MC_BUILD_TESTS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CMakeLists.txt")

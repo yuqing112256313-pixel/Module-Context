@@ -21,6 +21,13 @@ namespace {
 struct ModuleConfigSpec {
     std::string name;
     std::string library_path;
+    foundation::config::ConfigValue config;
+
+    ModuleConfigSpec()
+        : name(),
+          library_path(),
+          config(foundation::config::ConfigValue::MakeObject()) {
+    }
 };
 
 static const char kConfigSchemaVersionKey[] = "schema_version";
@@ -28,6 +35,7 @@ static const std::int64_t kConfigSchemaVersion = 1;
 static const char kConfigModulesKey[] = "modules";
 static const char kConfigNameKey[] = "name";
 static const char kConfigLibraryPathKey[] = "library_path";
+static const char kConfigInlineConfigKey[] = "config";
 
 std::string BuildMessage(const std::string& prefix, const std::string& detail) {
     if (detail.empty()) {
@@ -101,6 +109,26 @@ foundation::base::Result<ModuleConfigSpec> ParseModuleConfigEntry(
             foundation::filesystem::Join(
                 config_directory,
                 library_path.Value()));
+    }
+
+    if (value.Contains(kConfigInlineConfigKey)) {
+        foundation::base::Result<foundation::config::ConfigValue> config_value =
+            value.ObjectGet(kConfigInlineConfigKey);
+        if (!config_value.IsOk()) {
+            return MakeConfigSpecError(
+                "Invalid module config entry at modules[" +
+                std::to_string(static_cast<unsigned long long>(index)) +
+                "]: failed to read 'config'");
+        }
+
+        if (!config_value.Value().IsObject()) {
+            return MakeConfigSpecError(
+                "Invalid module config entry at modules[" +
+                std::to_string(static_cast<unsigned long long>(index)) +
+                "]: 'config' must be an object");
+        }
+
+        spec.config = config_value.Value();
     }
 
     return foundation::base::Result<ModuleConfigSpec>(spec);
@@ -219,6 +247,7 @@ foundation::base::Result<void> PrefixModuleError(
 
 ModuleManager::ModuleManager()
     : modules_by_name_(),
+      configs_by_name_(),
       module_order_() {
 }
 
@@ -278,6 +307,8 @@ foundation::base::Result<void> ModuleManager::LoadModules(
         StoreLoadedModule(
             staged_modules[index].first,
             std::move(staged_modules[index].second));
+        configs_by_name_[entries.Value()[index].name] =
+            entries.Value()[index].config;
     }
 
     return foundation::base::MakeSuccess();
@@ -311,6 +342,7 @@ foundation::base::Result<void> ModuleManager::LoadModule(
     }
 
     StoreLoadedModule(name, std::move(created_module.Value()));
+    configs_by_name_[name] = foundation::config::ConfigValue::MakeObject();
     return foundation::base::MakeSuccess();
 }
 
@@ -435,6 +467,7 @@ foundation::base::Result<void> ModuleManager::Fini() {
 
     // 完成反初始化后清空容器，释放句柄并重置管理器状态。
     modules_by_name_.clear();
+    configs_by_name_.clear();
     module_order_.clear();
 
     return first_error;
@@ -458,6 +491,20 @@ foundation::base::Result<IModule*> ModuleManager::Module(
     }
 
     return foundation::base::Result<IModule*>(module);
+}
+
+foundation::base::Result<foundation::config::ConfigValue>
+ModuleManager::ModuleConfig(const std::string& name) {
+    ModuleConfigMap::iterator it = configs_by_name_.find(name);
+    if (it == configs_by_name_.end()) {
+        return foundation::base::Result<foundation::config::ConfigValue>(
+            foundation::base::ErrorCode::kNotFound,
+            "ModuleManager::ModuleConfig failed: module '" + name +
+                "' was not found");
+    }
+
+    return foundation::base::Result<foundation::config::ConfigValue>(
+        it->second);
 }
 
 }  // namespace framework

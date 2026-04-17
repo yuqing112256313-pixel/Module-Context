@@ -5,6 +5,7 @@
 
 #include "foundation/base/ErrorCode.h"
 #include "foundation/base/Result.h"
+#include "foundation/config/ConfigValue.h"
 
 #include <string>
 
@@ -53,6 +54,13 @@ public:
      * @return 成功时返回 IModule*；找不到或状态异常时返回失败结果。
      */
     virtual foundation::base::Result<IModule*> Module(
+        const std::string& name) = 0;
+    /**
+     * @brief 按名称获取模块私有配置对象。
+     *
+     * 配置来自模块清单中的 `config` 字段；若未提供则返回空对象。
+     */
+    virtual foundation::base::Result<foundation::config::ConfigValue> ModuleConfig(
         const std::string& name) = 0;
 
     template <typename T>

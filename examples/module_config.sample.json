@@ -2,12 +2,116 @@
   "schema_version": 1,
   "modules": [
     {
-      "name": "MyModule",
-      "library_path": "./plugins/MyModule.dll"
-    },
-    {
-      "name": "OtherModule",
-      "library_path": "./plugins/OtherModule.dll"
+      "name": "rabbitmq_bus",
+      "library_path": "./plugins/rabbitmq_bus.dll",
+      "config": {
+        "connection": {
+          "uri": "amqp://guest:guest@127.0.0.1:5672/",
+          "heartbeat_seconds": 30,
+          "socket_timeout_ms": 100,
+          "reconnect": {
+            "enabled": true,
+            "initial_delay_ms": 1000,
+            "max_delay_ms": 30000
+          }
+        },
+        "worker_pool": {
+          "thread_count": 4
+        },
+        "topology": {
+          "exchanges": [
+            {
+              "name": "task.exchange",
+              "type": "direct",
+              "durable": true
+            },
+            {
+              "name": "result.exchange",
+              "type": "direct",
+              "durable": true
+            },
+            {
+              "name": "special.exchange",
+              "type": "topic",
+              "durable": true
+            }
+          ],
+          "queues": [
+            {
+              "name": "task.queue",
+              "durable": true
+            },
+            {
+              "name": "result.queue",
+              "durable": true
+            },
+            {
+              "name": "special.queue",
+              "durable": true
+            }
+          ],
+          "bindings": [
+            {
+              "exchange": "task.exchange",
+              "queue": "task.queue",
+              "routing_key": "task.run"
+            },
+            {
+              "exchange": "result.exchange",
+              "queue": "result.queue",
+              "routing_key": "task.result"
+            },
+            {
+              "exchange": "special.exchange",
+              "queue": "special.queue",
+              "routing_key": "special.#"
+            }
+          ]
+        },
+        "publishers": [
+          {
+            "name": "task_publisher",
+            "exchange": "task.exchange",
+            "routing_key": "task.run",
+            "persistent": true,
+            "content_type": "application/octet-stream"
+          },
+          {
+            "name": "result_publisher",
+            "exchange": "result.exchange",
+            "routing_key": "task.result",
+            "persistent": true,
+            "content_type": "application/octet-stream"
+          },
+          {
+            "name": "special_publisher",
+            "exchange": "special.exchange",
+            "routing_key": "special.notify",
+            "persistent": true,
+            "content_type": "application/octet-stream"
+          }
+        ],
+        "consumers": [
+          {
+            "name": "task_worker",
+            "queue": "task.queue",
+            "prefetch_count": 1,
+            "auto_ack": false
+          },
+          {
+            "name": "result_master",
+            "queue": "result.queue",
+            "prefetch_count": 8,
+            "auto_ack": false
+          },
+          {
+            "name": "special_consumer",
+            "queue": "special.queue",
+            "prefetch_count": 4,
+            "auto_ack": false
+          }
+        ]
+      }
     }
   ]
 }

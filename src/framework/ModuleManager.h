@@ -5,6 +5,7 @@
 
 #include "foundation/base/NonCopyable.h"
 #include "foundation/base/Result.h"
+#include "foundation/config/ConfigValue.h"
 #include "foundation/plugin/PluginLoader.h"
 
 #include <string>
@@ -35,6 +36,8 @@ public:
 
     foundation::base::Result<IModule*> Module(
         const std::string& name) override;
+    foundation::base::Result<foundation::config::ConfigValue> ModuleConfig(
+        const std::string& name) override;
 
 private:
     typedef foundation::plugin::PluginLoader<IModule> ModuleLoader;
@@ -50,9 +53,11 @@ private:
 
 private:
     typedef std::unordered_map<std::string, ModuleHandle> ModuleMap;
+    typedef std::unordered_map<std::string, foundation::config::ConfigValue> ModuleConfigMap;
     typedef std::vector<std::string> ModuleOrder;
 
     ModuleMap modules_by_name_;
+    ModuleConfigMap configs_by_name_;
     ModuleOrder module_order_;
 };
 
