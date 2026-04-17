@@ -39,6 +39,11 @@ cmake -S . -B build
 cmake --build build -j
 ```
 
+默认远端依赖仓库：
+
+- Foundation: `https://github.com/yuqing112256313-pixel/Foundation.git`
+- AMQP-CPP-CXX11: `https://github.com/yuqing112256313-pixel/AMQP-CPP-CXX11.git`
+
 启用示例与测试：
 
 ```bash
