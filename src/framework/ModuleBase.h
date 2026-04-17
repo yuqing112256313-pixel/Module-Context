@@ -9,7 +9,7 @@
 namespace module_context {
 namespace framework {
 
-class ModuleBase
+class MC_FRAMEWORK_API ModuleBase
     : public virtual IModule,
       private foundation::base::NonCopyable {
 public:

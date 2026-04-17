@@ -17,7 +17,7 @@
 namespace module_context {
 namespace framework {
 
-class ModuleManager final
+class MC_FRAMEWORK_API ModuleManager final
     : public IModuleManager,
       private foundation::base::NonCopyable {
 public:

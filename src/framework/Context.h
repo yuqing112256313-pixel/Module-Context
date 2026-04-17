@@ -12,7 +12,7 @@ namespace framework {
 
 class ModuleManager;
 
-class Context final
+class MC_FRAMEWORK_API Context final
     : public IContext,
       private foundation::base::NonCopyable {
 public:
@@ -34,7 +34,7 @@ private:
         const char* service_key) override;
 
 private:
-    std::unique_ptr<ModuleManager> module_manager_;
+    std::unique_ptr<module_context::framework::ModuleManager> module_manager_;
 };
 
 }  // namespace framework
