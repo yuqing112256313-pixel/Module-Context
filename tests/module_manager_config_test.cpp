@@ -293,6 +293,59 @@ bool RunMissingTypeCase() {
         "LoadModules should reject entries without type");
 }
 
+bool RunMissingNameCase() {
+    std::ostringstream config;
+    config
+        << "{\n"
+        << "  \"schema_version\": 2,\n"
+        << "  \"modules\": [\n"
+        << "    {\n"
+        << "      \"type\": \"config_test_module\",\n"
+        << "      \"library_path\": \"" << JsonEscape(MC_TEST_CONFIG_PLUGIN_PATH) << "\"\n"
+        << "    }\n"
+        << "  ]\n"
+        << "}\n";
+
+    if (!WriteConfigFile("module_manager_config_missing_name.json", config.str())) {
+        return false;
+    }
+
+    module_context::framework::ModuleManager manager;
+    foundation::base::Result<void> load_result =
+        manager.LoadModules(ConfigPath("module_manager_config_missing_name.json"));
+    return Expect(
+        !load_result.IsOk() &&
+            load_result.GetError() == foundation::base::ErrorCode::kParseError,
+        "LoadModules should reject entries without name");
+}
+
+bool RunEmptyNameCase() {
+    std::ostringstream config;
+    config
+        << "{\n"
+        << "  \"schema_version\": 2,\n"
+        << "  \"modules\": [\n"
+        << "    {\n"
+        << "      \"name\": \"\",\n"
+        << "      \"type\": \"config_test_module\",\n"
+        << "      \"library_path\": \"" << JsonEscape(MC_TEST_CONFIG_PLUGIN_PATH) << "\"\n"
+        << "    }\n"
+        << "  ]\n"
+        << "}\n";
+
+    if (!WriteConfigFile("module_manager_config_empty_name.json", config.str())) {
+        return false;
+    }
+
+    module_context::framework::ModuleManager manager;
+    foundation::base::Result<void> load_result =
+        manager.LoadModules(ConfigPath("module_manager_config_empty_name.json"));
+    return Expect(
+        !load_result.IsOk() &&
+            load_result.GetError() == foundation::base::ErrorCode::kParseError,
+        "LoadModules should reject empty name values");
+}
+
 bool RunEmptyTypeCase() {
     std::ostringstream config;
     config
@@ -318,6 +371,70 @@ bool RunEmptyTypeCase() {
         !load_result.IsOk() &&
             load_result.GetError() == foundation::base::ErrorCode::kParseError,
         "LoadModules should reject empty type values");
+}
+
+bool RunMissingSchemaVersionCase() {
+    std::ostringstream config;
+    config
+        << "{\n"
+        << "  \"modules\": [\n"
+        << "    {\n"
+        << "      \"name\": \"config_test_alias\",\n"
+        << "      \"type\": \"config_test_module\",\n"
+        << "      \"library_path\": \"" << JsonEscape(MC_TEST_CONFIG_PLUGIN_PATH) << "\"\n"
+        << "    }\n"
+        << "  ]\n"
+        << "}\n";
+
+    if (!WriteConfigFile("module_manager_config_missing_schema.json", config.str())) {
+        return false;
+    }
+
+    module_context::framework::ModuleManager manager;
+    foundation::base::Result<void> load_result =
+        manager.LoadModules(ConfigPath("module_manager_config_missing_schema.json"));
+    return Expect(
+        !load_result.IsOk() &&
+            load_result.GetError() == foundation::base::ErrorCode::kParseError,
+        "LoadModules should reject configs without schema_version");
+}
+
+bool RunModulesMustBeArrayCase() {
+    std::ostringstream config;
+    config
+        << "{\n"
+        << "  \"schema_version\": 2,\n"
+        << "  \"modules\": {\n"
+        << "    \"name\": \"config_test_alias\"\n"
+        << "  }\n"
+        << "}\n";
+
+    if (!WriteConfigFile("module_manager_config_modules_not_array.json", config.str())) {
+        return false;
+    }
+
+    module_context::framework::ModuleManager manager;
+    foundation::base::Result<void> load_result =
+        manager.LoadModules(ConfigPath("module_manager_config_modules_not_array.json"));
+    return Expect(
+        !load_result.IsOk() &&
+            load_result.GetError() == foundation::base::ErrorCode::kParseError,
+        "LoadModules should reject non-array modules field");
+}
+
+bool RunRootMustBeObjectCase() {
+    const std::string config = "[{\"schema_version\":2}]";
+    if (!WriteConfigFile("module_manager_config_root_not_object.json", config)) {
+        return false;
+    }
+
+    module_context::framework::ModuleManager manager;
+    foundation::base::Result<void> load_result =
+        manager.LoadModules(ConfigPath("module_manager_config_root_not_object.json"));
+    return Expect(
+        !load_result.IsOk() &&
+            load_result.GetError() == foundation::base::ErrorCode::kParseError,
+        "LoadModules should reject non-object config root");
 }
 
 bool RunTypeMismatchCase() {
@@ -412,10 +529,25 @@ int main() {
     if (!RunDuplicateModuleNameCase()) {
         return 1;
     }
+    if (!RunMissingNameCase()) {
+        return 1;
+    }
+    if (!RunEmptyNameCase()) {
+        return 1;
+    }
     if (!RunMissingTypeCase()) {
         return 1;
     }
     if (!RunEmptyTypeCase()) {
+        return 1;
+    }
+    if (!RunMissingSchemaVersionCase()) {
+        return 1;
+    }
+    if (!RunModulesMustBeArrayCase()) {
+        return 1;
+    }
+    if (!RunRootMustBeObjectCase()) {
         return 1;
     }
     if (!RunTypeMismatchCase()) {
