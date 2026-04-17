@@ -36,14 +36,16 @@ foundation::base::Result<IModule*> ServiceFactory::Lookup(
     if (by_key == services_by_key_.end()) {
         return foundation::base::Result<IModule*>(
             foundation::base::ErrorCode::kNotFound,
-            "ServiceFactory::Lookup failed: service '" + name + "' was not found");
+            "ServiceFactory::Lookup failed: service key '" + service_key +
+                "' has no provider named '" + name + "'");
     }
 
     ServiceMap::const_iterator by_name = by_key->second.find(name);
     if (by_name == by_key->second.end()) {
         return foundation::base::Result<IModule*>(
             foundation::base::ErrorCode::kNotFound,
-            "ServiceFactory::Lookup failed: service '" + name + "' was not found");
+            "ServiceFactory::Lookup failed: service key '" + service_key +
+                "' has no provider named '" + name + "'");
     }
 
     if (by_name->second == NULL) {
