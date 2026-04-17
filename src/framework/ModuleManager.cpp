@@ -604,14 +604,15 @@ foundation::base::Result<IModule*> ModuleManager::LookupModuleRaw(
     if (it == modules_by_name_.end()) {
         return foundation::base::Result<IModule*>(
             foundation::base::ErrorCode::kNotFound,
-            "ModuleManager::Module failed: module '" + name + "' was not found");
+            "ModuleManager::LookupModuleRaw failed: module '" + name +
+                "' was not found");
     }
 
     IModule* module = it->second.Get();
     if (module == NULL) {
         return foundation::base::Result<IModule*>(
             foundation::base::ErrorCode::kInvalidState,
-            "ModuleManager::Module failed: module '" + name +
+            "ModuleManager::LookupModuleRaw failed: module '" + name +
                 "' is not available");
     }
 
