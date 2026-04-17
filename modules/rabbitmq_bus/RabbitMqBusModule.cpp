@@ -1272,6 +1272,8 @@ struct ConsumerRuntime {
     }
 };
 
+}  // namespace
+
 class RabbitMqConnectionDriver : public AMQP::ConnectionHandler,
                                  private foundation::base::NonCopyable {
 public:
@@ -2645,6 +2647,5 @@ foundation::base::Result<void> RabbitMqBusModule::OnFini() {
 
 MC_DECLARE_MODULE_FACTORY(RabbitMqBusModule)
 
-}  // namespace
 }  // namespace messaging
 }  // namespace module_context
