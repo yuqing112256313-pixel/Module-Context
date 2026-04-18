@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RabbitMQ 图像链路 60 张/秒可行性汇报</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --text: #111827;
+      --muted: #6b7280;
+      --line: #e5e7eb;
+      --blue: #2563eb;
+      --blue-soft: #dbeafe;
+      --green: #059669;
+      --green-soft: #d1fae5;
+      --amber: #d97706;
+      --amber-soft: #fef3c7;
+      --red: #dc2626;
+      --red-soft: #fee2e2;
+      --shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      color: var(--text);
+      background: linear-gradient(180deg, #eef4ff 0%, var(--bg) 220px);
+      line-height: 1.6;
+    }
+    .wrap {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 32px 24px 56px;
+    }
+    .hero {
+      background: linear-gradient(135deg, #0f172a 0%, #1d4ed8 100%);
+      color: white;
+      border-radius: 24px;
+      padding: 28px 30px;
+      box-shadow: var(--shadow);
+    }
+    .hero h1 {
+      margin: 0 0 10px;
+      font-size: 34px;
+      line-height: 1.2;
+    }
+    .hero p {
+      margin: 0;
+      color: rgba(255,255,255,0.9);
+      font-size: 15px;
+    }
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+      background: rgba(255,255,255,0.14);
+      border: 1px solid rgba(255,255,255,0.16);
+      color: white;
+    }
+    .grid {
+      display: grid;
+      gap: 18px;
+      margin-top: 20px;
+    }
+    .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      padding: 20px;
+    }
+    .metric h3 {
+      margin: 0 0 6px;
+      font-size: 14px;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .metric .value {
+      font-size: 34px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+    }
+    .metric .sub {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    h2 {
+      margin: 0 0 14px;
+      font-size: 24px;
+      line-height: 1.25;
+    }
+    h3 {
+      margin: 0 0 10px;
+      font-size: 18px;
+      line-height: 1.3;
+    }
+    .muted { color: var(--muted); }
+    .callout {
+      padding: 14px 16px;
+      border-radius: 14px;
+      margin: 12px 0 0;
+      border: 1px solid var(--line);
+      font-size: 14px;
+    }
+    .callout.blue { background: var(--blue-soft); border-color: #bfdbfe; }
+    .callout.green { background: var(--green-soft); border-color: #a7f3d0; }
+    .callout.amber { background: var(--amber-soft); border-color: #fde68a; }
+    .callout.red { background: var(--red-soft); border-color: #fecaca; }
+    ul { margin: 10px 0 0 20px; padding: 0; }
+    li { margin: 6px 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    th, td {
+      text-align: left;
+      padding: 12px 12px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    th {
+      color: #374151;
+      font-weight: 700;
+      background: #f9fafb;
+    }
+    tr:last-child td { border-bottom: none; }
+    .section { margin-top: 22px; }
+    .pill {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .pill.green { background: var(--green-soft); color: var(--green); }
+    .pill.blue { background: var(--blue-soft); color: var(--blue); }
+    .pill.amber { background: var(--amber-soft); color: var(--amber); }
+    .pill.red { background: var(--red-soft); color: var(--red); }
+    .footer {
+      margin-top: 22px;
+      color: var(--muted);
+      font-size: 13px;
+      text-align: right;
+    }
+    @media (max-width: 1000px) {
+      .grid-4, .grid-2 { grid-template-columns: 1fr; }
+      .metric .value { font-size: 28px; }
+      .hero h1 { font-size: 28px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <h1>RabbitMQ 图像链路 60 张/秒可行性汇报</h1>
+      <p>面向领导的结论版 HTML 报表。覆盖当前单机拟真结果、关键瓶颈、达到 60 张/秒所需条件，以及 Windows 1 主 5 从真实场景预测。</p>
+      <div class="badge-row">
+        <span class="badge">当前最佳单机完成吞吐 26.03/s</span>
+        <span class="badge">目标 60/s</span>
+        <span class="badge">20MB 图像</span>
+        <span class="badge">1 主 5 从</span>
+        <span class="badge">最低推荐网络 25G</span>
+      </div>
+    </section>
+
+    <section class="grid grid-4 section">
+      <div class="card metric">
+        <h3>当前最佳发布吞吐</h3>
+        <div class="value">33.06/s</div>
+        <div class="sub">高利用率版单机拟真</div>
+      </div>
+      <div class="card metric">
+        <h3>当前最佳完成吞吐</h3>
+        <div class="value">26.03/s</div>
+        <div class="sub">距目标 60/s 仍差约 2.30 倍</div>
+      </div>
+      <div class="card metric">
+        <h3>当前最佳 E2E P95</h3>
+        <div class="value">587.4ms</div>
+        <div class="sub">P50 381.5ms, P99 620.1ms</div>
+      </div>
+      <div class="card metric">
+        <h3>最低硬性网络条件</h3>
+        <div class="value">25G</div>
+        <div class="sub">10G 无法稳定承载 20MB × 60/s</div>
+      </div>
+    </section>
+
+    <section class="grid grid-2 section">
+      <div class="card">
+        <h2>一页结论</h2>
+        <div class="callout blue"><strong>结论 1</strong>，当前单机拟真环境已经把主要瓶颈摸清了。系统从最初 <strong>1.42/s</strong> 提升到当前最佳 <strong>26.03/s</strong>，说明异步化、mmap、并发发布和背压方向是正确的。</div>
+        <div class="callout green"><strong>结论 2</strong>，当前最终瓶颈已经不是 worker 算法阶段，也不是 RabbitMQ 队列堆积，而是<strong>主机侧 20MB 数据面的持续生成/落地</strong>与<strong>控制面 publish 路径偏重</strong>。</div>
+        <div class="callout amber"><strong>结论 3</strong>，若真实场景是 1 主 5 从、20MB 图像、目标 60/s，则 <strong>10G 网络不可能稳定达标</strong>。<strong>25G 是最低硬性网络条件</strong>，40G 更适合做稳态承诺。</div>
+        <div class="callout red"><strong>结论 4</strong>，要达到 60/s，最低硬性条件不是“继续多开线程”，而是<strong>换对数据面</strong>，让 RabbitMQ 只传元数据，让大图脱离文件热路径。</div>
+      </div>
+      <div class="card">
+        <h2>当前测试条件</h2>
+        <table>
+          <tr><th>测试机</th><td>Apple M4 Max / 36GB RAM / 14 CPU 核心</td></tr>
+          <tr><th>环境</th><td>单机 macOS，本地 RabbitMQ 运行于 Colima + Docker</td></tr>
+          <tr><th>拓扑</th><td>1 个 master 进程 + 5 个 worker 进程</td></tr>
+          <tr><th>消息面</th><td>RabbitMQ 仅传轻量控制消息</td></tr>
+          <tr><th>数据面</th><td>本地文件 / 文件映射方式拟真，默认不再写 20MB 输出图</td></tr>
+          <tr><th>压测参数</th><td>20MB 图像，60 tasks，目标 60/s，simulate_process_ms = 10ms</td></tr>
+          <tr><th>高利用率配置</th><td>4 写图线程，8 发布线程，8 结果消费线程，worker bus threads 8，worker prefetch 16</td></tr>
+        </table>
+      </div>
+    </section>
+
+    <section class="card section">
+      <h2>当前情况，对比结果表</h2>
+      <table>
+        <tr>
+          <th>阶段</th>
+          <th>关键改动</th>
+          <th>发布吞吐</th>
+          <th>完成吞吐</th>
+          <th>E2E P95</th>
+          <th>结论</th>
+        </tr>
+        <tr>
+          <td>旧版 real perf</td>
+          <td>旧数据路径，重复读写 / 落盘</td>
+          <td>3.63/s</td>
+          <td>1.42/s</td>
+          <td>约 50s</td>
+          <td>主从内部实现严重拖慢链路</td>
+        </tr>
+        <tr>
+          <td>优化后 stream 基线</td>
+          <td>去掉输出图物化，减少拷贝</td>
+          <td>7.87/s</td>
+          <td>7.78/s</td>
+          <td>824ms</td>
+          <td>主要收益先来自架构去瓶颈</td>
+        </tr>
+        <tr>
+          <td>优化后 mmap</td>
+          <td>mmap 读，仍单机</td>
+          <td>7.01/s</td>
+          <td>7.21/s</td>
+          <td>577ms</td>
+          <td>mmap 明显改善读路径和尾延迟</td>
+        </tr>
+        <tr>
+          <td>10ms + 初步异步主机</td>
+          <td>主机写图 / 发布解耦</td>
+          <td>15.95/s</td>
+          <td>11.23/s</td>
+          <td>1697ms</td>
+          <td>打掉主机串行发布瓶颈，但无界推进造成排队上升</td>
+        </tr>
+        <tr>
+          <td><strong>10ms + 主从异步 + 有界背压 + 高利用率</strong></td>
+          <td><strong>4 写图线程 + 8 发布线程 + worker 并发 + inflight 背压</strong></td>
+          <td><strong>33.06/s</strong></td>
+          <td><strong>26.03/s</strong></td>
+          <td><strong>587ms</strong></td>
+          <td><strong>当前单机拟真上限已接近清晰暴露</strong></td>
+        </tr>
+      </table>
+      <div class="callout blue"><strong>当前最佳结果</strong>：完成吞吐 26.03/s，仅达到目标 60/s 的 <strong>43.4%</strong>。与目标相比，发布侧仍需提升约 <strong>1.81 倍</strong>，完成侧仍需提升约 <strong>2.30 倍</strong>。</div>
+    </section>
+
+    <section class="grid grid-2 section">
+      <div class="card">
+        <h2>当前最终瓶颈分析</h2>
+        <h3>不是 worker 算法瓶颈</h3>
+        <ul>
+          <li>worker <code>read_p50 / p95 = 1 / 1 ms</code></li>
+          <li>worker <code>process_p50 / p95 = 23 / 50 ms</code></li>
+          <li>worker <code>cleanup_p50 / p95 = 0 / 2.1 ms</code></li>
+        </ul>
+        <div class="callout green">单 worker 本地处理能力已经高于当前全局 26.03/s 的完成吞吐，因此当前系统不是被算法阶段卡住。</div>
+
+        <h3>不是 RabbitMQ 队列堆积瓶颈</h3>
+        <ul>
+          <li>task queue backlog 基本为 0</li>
+          <li>task queue unacked 基本为 0</li>
+        </ul>
+        <div class="callout blue">当前并没有形成“队列长期堆积”的形态，因此也不是 RabbitMQ 队列被堆爆。</div>
+      </div>
+      <div class="card">
+        <h2>当前真正重的路径</h2>
+        <table>
+          <tr><th>指标</th><th>当前最佳结果</th><th>含义</th></tr>
+          <tr><td>主机写图 P50 / P95</td><td>21 / 27 ms</td><td>主机持续生成 20MB 图像仍然偏重</td></tr>
+          <tr><td>主机 publish 调用 P50 / P95</td><td>254.5 / 294.2 ms</td><td>控制面 publish 路径自身调用开销偏高</td></tr>
+          <tr><td>queue_wait P50 / P95</td><td>256 / 297.1 ms</td><td>与 publish 同量级，说明等待很可能主要发生在 publish / broker / 回调推进链路</td></tr>
+        </table>
+        <div class="callout amber"><strong>当前最终瓶颈排序</strong>：<br>1. 主机侧 20MB 图像持续生成 / 落地 / 页缓存竞争<br>2. RabbitMqBus publish 路径调用开销偏高<br>3. 单机把 master、5 workers、RabbitMQ、文件映射、页缓存竞争叠在一起</div>
+      </div>
+    </section>
+
+    <section class="card section">
+      <h2>要达到 60 张/秒，需要提升哪些</h2>
+      <table>
+        <tr>
+          <th>改造项</th>
+          <th>当前状态</th>
+          <th>目标要求</th>
+          <th>为什么必须做</th>
+        </tr>
+        <tr>
+          <td>数据面</td>
+          <td>主机仍持续生成 / 落 20MB 文件</td>
+          <td>切到共享内存 / 预分配缓冲 / ring buffer</td>
+          <td>当前文件热路径仍然太重，单机拟真整体还差约 2.30 倍</td>
+        </tr>
+        <tr>
+          <td>RabbitMQ 控制面</td>
+          <td>publish_call P50 ≈ 254.5ms</td>
+          <td>进一步降到当前的 1/1.5 至 1/2 左右</td>
+          <td>若 8 条发布 lane 要追 60/s，平均每 lane publish 周期需接近 133ms 以内</td>
+        </tr>
+        <tr>
+          <td>从机单张总服务时间</td>
+          <td>算法已不重，但真实总服务时间未知</td>
+          <td>1 主 5 从下必须 ≤ 83.3ms，建议平均 ≤ 70ms，P95 ≤ 80ms</td>
+          <td>这是 60/s 下 5 台从机的硬数学条件</td>
+        </tr>
+        <tr>
+          <td>背压策略</td>
+          <td>已具备有界队列 + inflight 背压</td>
+          <td>继续保留，但应运行在高利用率区间</td>
+          <td>无界异步会把延迟打爆，有界背压能稳定高效利用资源</td>
+        </tr>
+      </table>
+    </section>
+
+    <section class="card section">
+      <h2>Windows 多机真实场景预测报表</h2>
+      <div class="callout blue"><strong>预测前提</strong>：1 主 5 从，Windows 多机，CPU 为 i9-12900K，内存 192GB，图像大小 20MB，目标吞吐 60/s，RabbitMQ 只传轻量任务/结果元数据。</div>
+      <h3>先看最硬的网络条件</h3>
+      <table>
+        <tr><th>网络</th><th>理论情况</th><th>能否稳定支撑 60/s</th></tr>
+        <tr><td>10G</td><td>理论约 1.25GB/s，实际可用通常 1.0 到 1.1GB/s</td><td><span class="pill red">不能</span></td></tr>
+        <tr><td>25G</td><td>理论约 3.125GB/s，实际可用通常 > 2.5GB/s</td><td><span class="pill green">可以，且是最低硬性条件</span></td></tr>
+        <tr><td>40G</td><td>理论约 5GB/s</td><td><span class="pill blue">可以，且更适合做稳态承诺</span></td></tr>
+      </table>
+
+      <h3>再看真实部署预测</h3>
+      <table>
+        <tr>
+          <th>真实部署方案</th>
+          <th>网络</th>
+          <th>预测稳定完成吞吐</th>
+          <th>对 60/s 的判断</th>
+        </tr>
+        <tr>
+          <td>1 主 5 从，沿用重文件路径</td>
+          <td>10G</td>
+          <td>20 ~ 35/s</td>
+          <td><span class="pill red">明显不够</span></td>
+        </tr>
+        <tr>
+          <td>1 主 5 从，沿用重文件路径</td>
+          <td>25G</td>
+          <td>25 ~ 40/s</td>
+          <td><span class="pill red">仍明显不够</span></td>
+        </tr>
+        <tr>
+          <td>1 主 5 从，沿用重文件路径</td>
+          <td>40G</td>
+          <td>30 ~ 45/s</td>
+          <td><span class="pill amber">仍不建议承诺</span></td>
+        </tr>
+        <tr>
+          <td>1 主 5 从，优化控制面但未换数据面</td>
+          <td>25G</td>
+          <td>35 ~ 50/s</td>
+          <td><span class="pill amber">接近但不稳</span></td>
+        </tr>
+        <tr>
+          <td>1 主 5 从，优化控制面但未换数据面</td>
+          <td>40G</td>
+          <td>40 ~ 55/s</td>
+          <td><span class="pill amber">仍可能达不到稳态 60</span></td>
+        </tr>
+        <tr>
+          <td><strong>1 主 5 从，目标数据面（共享内存 / 预分配缓冲）</strong></td>
+          <td><strong>25G</strong></td>
+          <td><strong>55 ~ 65/s</strong></td>
+          <td><span class="pill green">有机会达标，是最低可行档</span></td>
+        </tr>
+        <tr>
+          <td><strong>1 主 5 从，目标数据面（共享内存 / 预分配缓冲）</strong></td>
+          <td><strong>40G</strong></td>
+          <td><strong>60/s 稳态承诺概率更高</strong></td>
+          <td><span class="pill blue">推荐档</span></td>
+        </tr>
+      </table>
+    </section>
+
+    <section class="grid grid-2 section">
+      <div class="card">
+        <h2>达到理论速率 60/s 的最低硬性条件</h2>
+        <ol style="margin: 8px 0 0 22px; padding: 0;">
+          <li><strong>网络至少 25G</strong>。10G 实际可用吞吐不足以稳定承载 20MB × 60/s 的原始图像流量。</li>
+          <li><strong>RabbitMQ 只传元数据</strong>。适合 task_id、slot_id、offset、size、generation、checksum，不适合传 20MB 图像本体。</li>
+          <li><strong>数据面必须脱离文件热路径</strong>。避免每张图都创建文件、落盘、再读文件、再写输出图。</li>
+          <li><strong>1 主 5 从下，每个从机单张总服务时间必须 ≤ 83.3ms</strong>。若要稳态承诺 60/s，更建议平均 ≤ 70ms，P95 ≤ 80ms。</li>
+          <li><strong>控制面 publish 路径必须显著轻于当前 harness</strong>。当前 publish_call 仍太重，至少还需再优化约 1.5 到 2 倍。</li>
+        </ol>
+      </div>
+      <div class="card">
+        <h2>推荐落地方向</h2>
+        <ul>
+          <li>RabbitMQ 只做轻量控制面</li>
+          <li>数据面切到预分配共享内存 / 大块缓冲 / ring buffer</li>
+          <li>master：生成 → 写入 buffer → 发布元数据 → 回收 credit</li>
+          <li>worker：消费元数据 → 直接读 buffer → 处理 → 发布轻量结果 → 回收 slot</li>
+          <li>全链路保留有界队列 + inflight credit 背压</li>
+        </ul>
+        <div class="callout red"><strong>不建议继续投入的方向</strong>：继续在“文件落盘 / 文件映射拟真”路径上无限加线程。当前数据已经表明，这条路正在进入收益递减区。</div>
+      </div>
+    </section>
+
+    <section class="card section">
+      <h2>给领导的一句话版本</h2>
+      <div class="callout blue" style="font-size: 15px;">
+        当前系统已经通过异步化、mmap、并发发布和背压把单机拟真吞吐从 <strong>1.42 张/秒</strong> 提升到 <strong>26.03 张/秒</strong>，说明架构方向正确。当前最终瓶颈已明确不是 worker 算法或 RabbitMQ 队列，而是主机侧 20MB 数据面的持续生成 / 落地，以及控制面 publish 路径偏重。若真实 Windows 1 主 5 从要达到 <strong>60 张/秒</strong>，最低硬性条件是：<strong>25G 网络</strong>、<strong>RabbitMQ 只传元数据</strong>、<strong>数据面脱离文件热路径</strong>、以及<strong>每个从机单张总服务时间稳定低于 83.3ms</strong>。25G 有机会达标，40G 更适合做稳态承诺。
+      </div>
+    </section>
+
+    <div class="footer">文件：docs/rabbitmq-60fps-leadership-report.html</div>
+  </div>
+</body>
+</html>
