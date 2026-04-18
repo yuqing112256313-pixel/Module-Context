@@ -112,6 +112,11 @@ Result<void> WriteScenarioSummary(
     int simulate_process_ms,
     int writer_threads,
     int publisher_threads,
+    int result_consumer_threads,
+    int result_consumer_prefetch,
+    int max_scheduled_queue,
+    int max_ready_publish_queue,
+    int max_inflight,
     std::size_t image_bytes,
     const std::string& io_mode,
     bool materialize_output,
@@ -126,6 +131,11 @@ Result<void> WriteScenarioSummary(
     output << "simulate_process_ms=" << simulate_process_ms << "\n";
     output << "writer_threads=" << writer_threads << "\n";
     output << "publisher_threads=" << publisher_threads << "\n";
+    output << "result_consumer_threads=" << result_consumer_threads << "\n";
+    output << "result_consumer_prefetch=" << result_consumer_prefetch << "\n";
+    output << "max_scheduled_queue=" << max_scheduled_queue << "\n";
+    output << "max_ready_publish_queue=" << max_ready_publish_queue << "\n";
+    output << "max_inflight=" << max_inflight << "\n";
     output << "image_bytes=" << image_bytes << "\n";
     output << "io_mode=" << io_mode << "\n";
     output << "materialize_output=" << (materialize_output ? 1 : 0) << "\n";
@@ -276,6 +286,11 @@ int main(int argc, char** argv) {
     const int simulate_process_ms = ParseOptionalInt(args, "simulate-process-ms", 80);
     const int writer_threads = std::max(1, ParseOptionalInt(args, "writer-threads", 2));
     const int publisher_threads = std::max(1, ParseOptionalInt(args, "publisher-threads", 4));
+    const int result_consumer_threads = std::max(1, ParseOptionalInt(args, "result-consumer-threads", 4));
+    const int result_consumer_prefetch = std::max(1, ParseOptionalInt(args, "result-consumer-prefetch", 128));
+    const int max_scheduled_queue = std::max(1, ParseOptionalInt(args, "max-scheduled-queue", writer_threads * 4));
+    const int max_ready_publish_queue = std::max(1, ParseOptionalInt(args, "max-ready-publish-queue", publisher_threads * 4));
+    const int max_inflight = std::max(1, ParseOptionalInt(args, "max-inflight", worker_count * 8));
     const std::size_t image_bytes = ParseOptionalSize(args, "image-bytes", 20u * 1024u * 1024u);
     const std::string scenario_id =
         args.find("scenario-id") == args.end() ? DefaultScenarioId() : args.find("scenario-id")->second;
@@ -299,7 +314,10 @@ int main(int argc, char** argv) {
     const std::string publish_csv_path = JoinPath(report_dir.Value(), "publish_metrics.csv");
     const std::string result_csv_path = JoinPath(report_dir.Value(), "result_metrics.csv");
 
-    RabbitMqBusHarness harness(MakeMasterBusConfig(uri.Value()));
+    RabbitMqBusHarness harness(MakeMasterBusConfig(
+        uri.Value(),
+        result_consumer_threads,
+        result_consumer_prefetch));
 
     Result<void> init_result = harness.Init();
     if (!init_result.IsOk()) {
@@ -315,11 +333,13 @@ int main(int argc, char** argv) {
 
     std::mutex result_mutex;
     std::condition_variable result_cv;
+    std::mutex pipeline_progress_mutex;
+    std::condition_variable pipeline_progress_cv;
     std::map<std::string, ReceivedMetrics> received;
 
     Result<void> register_result = bus->RegisterConsumerHandler(
         "perf_result_consumer",
-        [&result_mutex, &result_cv, &received](const IncomingMessage& incoming) {
+        [&result_mutex, &result_cv, &received, &pipeline_progress_cv](const IncomingMessage& incoming) {
             const std::uint64_t master_receive_ts_ms = NowMs();
             const std::string payload(incoming.payload.begin(), incoming.payload.end());
             Result<ResultMessage> parsed = ParseResultMessage(payload);
@@ -342,6 +362,7 @@ int main(int argc, char** argv) {
                               << " status=" << parsed.Value().status << std::endl;
                 }
                 result_cv.notify_all();
+                pipeline_progress_cv.notify_all();
             }
             return ConsumeAction::Ack;
         });
@@ -377,6 +398,11 @@ int main(int argc, char** argv) {
         simulate_process_ms,
         writer_threads,
         publisher_threads,
+        result_consumer_threads,
+        result_consumer_prefetch,
+        max_scheduled_queue,
+        max_ready_publish_queue,
+        max_inflight,
         image_bytes,
         io_mode,
         materialize_output,
@@ -399,9 +425,15 @@ int main(int argc, char** argv) {
               << ", io_mode=" << io_mode
               << ", materialize_output=" << (materialize_output ? 1 : 0)
               << ", writer_threads=" << writer_threads
-              << ", publisher_threads=" << publisher_threads << std::endl;
+              << ", publisher_threads=" << publisher_threads
+              << ", result_consumer_threads=" << result_consumer_threads
+              << ", result_consumer_prefetch=" << result_consumer_prefetch
+              << ", max_scheduled_queue=" << max_scheduled_queue
+              << ", max_ready_publish_queue=" << max_ready_publish_queue
+              << ", max_inflight=" << max_inflight << std::endl;
 
     const std::string master_uri = uri.Value();
+    const int master_publisher_bus_threads = publisher_threads;
     const std::chrono::steady_clock::time_point publish_anchor = std::chrono::steady_clock::now();
     const double interval_ms = target_rate > 0 ? (1000.0 / static_cast<double>(target_rate)) : 0.0;
 
@@ -425,7 +457,8 @@ int main(int argc, char** argv) {
          &pipeline_error,
          &abort_pipeline,
          &scheduled_tasks_cv,
-         &ready_publish_cv](const std::string& message) {
+         &ready_publish_cv,
+         &pipeline_progress_cv](const std::string& message) {
             bool should_log = false;
             {
                 std::lock_guard<std::mutex> lock(pipeline_error_mutex);
@@ -437,6 +470,7 @@ int main(int argc, char** argv) {
             abort_pipeline.store(true);
             scheduled_tasks_cv.notify_all();
             ready_publish_cv.notify_all();
+            pipeline_progress_cv.notify_all();
             if (should_log) {
                 std::cerr << message << std::endl;
             }
@@ -454,6 +488,7 @@ int main(int argc, char** argv) {
              &ready_publish_tasks,
              &ready_publish_mutex,
              &ready_publish_cv,
+             &pipeline_progress_cv,
              &publish_input_complete,
              &active_writers,
              &abort_pipeline,
@@ -479,6 +514,7 @@ int main(int argc, char** argv) {
                         task = scheduled_tasks.front();
                         scheduled_tasks.pop_front();
                     }
+                    pipeline_progress_cv.notify_all();
 
                     ReadyPublishTask ready_task;
                     ready_task.index = task.index;
@@ -505,6 +541,7 @@ int main(int argc, char** argv) {
                         ready_publish_tasks.push_back(ready_task);
                     }
                     ready_publish_cv.notify_one();
+                    pipeline_progress_cv.notify_all();
                 }
 
                 if (active_writers.fetch_sub(1) == 1) {
@@ -513,6 +550,7 @@ int main(int argc, char** argv) {
                         publish_input_complete = true;
                     }
                     ready_publish_cv.notify_all();
+                    pipeline_progress_cv.notify_all();
                 }
             }));
     }
@@ -525,13 +563,16 @@ int main(int argc, char** argv) {
              &ready_publish_tasks,
              &ready_publish_mutex,
              &ready_publish_cv,
+             &pipeline_progress_cv,
              &publish_input_complete,
              &abort_pipeline,
              &set_pipeline_error,
              &publishes,
              &published_count,
-             &master_uri]() {
-                RabbitMqBusHarness publish_harness(MakeMasterPublisherBusConfig(master_uri));
+             &master_uri,
+             &master_publisher_bus_threads]() {
+                RabbitMqBusHarness publish_harness(
+                    MakeMasterPublisherBusConfig(master_uri, master_publisher_bus_threads));
                 Result<void> init_result = publish_harness.Init();
                 if (!init_result.IsOk()) {
                     std::ostringstream stream;
@@ -587,6 +628,7 @@ int main(int argc, char** argv) {
                         ready_task = ready_publish_tasks.front();
                         ready_publish_tasks.pop_front();
                     }
+                    pipeline_progress_cv.notify_all();
 
                     TaskMessage task_message;
                     task_message.task_id = ready_task.metrics.task_id;
@@ -617,6 +659,7 @@ int main(int argc, char** argv) {
                     }
 
                     const std::size_t published_now = published_count.fetch_add(1) + 1;
+                    pipeline_progress_cv.notify_all();
                     if (published_now <= 5 || published_now % 20 == 0) {
                         std::cout << "[master] published " << published_now << "/" << publishes.size()
                                   << " task_id=" << ready_task.metrics.task_id << std::endl;
@@ -638,6 +681,39 @@ int main(int argc, char** argv) {
             }
         }
 
+        while (!abort_pipeline.load()) {
+            std::size_t scheduled_size = 0;
+            std::size_t ready_publish_size = 0;
+            {
+                std::lock_guard<std::mutex> lock(scheduled_tasks_mutex);
+                scheduled_size = scheduled_tasks.size();
+            }
+            {
+                std::lock_guard<std::mutex> lock(ready_publish_mutex);
+                ready_publish_size = ready_publish_tasks.size();
+            }
+            std::size_t completed_size = 0;
+            {
+                std::lock_guard<std::mutex> lock(result_mutex);
+                completed_size = received.size();
+            }
+            const std::size_t current_published = published_count.load();
+            const std::size_t inflight = current_published > completed_size
+                                             ? (current_published - completed_size)
+                                             : 0;
+            if (scheduled_size < static_cast<std::size_t>(max_scheduled_queue) &&
+                ready_publish_size < static_cast<std::size_t>(max_ready_publish_queue) &&
+                inflight < static_cast<std::size_t>(max_inflight)) {
+                break;
+            }
+
+            std::unique_lock<std::mutex> wait_lock(pipeline_progress_mutex);
+            pipeline_progress_cv.wait_for(wait_lock, std::chrono::milliseconds(5));
+        }
+        if (abort_pipeline.load()) {
+            break;
+        }
+
         std::ostringstream task_id_stream;
         task_id_stream << scenario_id << "-task-" << std::setw(4) << std::setfill('0') << (index + 1);
         ScheduledTask scheduled_task;
@@ -651,6 +727,7 @@ int main(int argc, char** argv) {
             scheduled_tasks.push_back(scheduled_task);
         }
         scheduled_tasks_cv.notify_one();
+        pipeline_progress_cv.notify_all();
     }
 
     {

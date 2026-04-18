@@ -107,9 +107,17 @@ private:
     module_context::messaging::RabbitMqBusModule module_;
 };
 
-foundation::config::ConfigValue MakeMasterBusConfig(const std::string& uri);
-foundation::config::ConfigValue MakeMasterPublisherBusConfig(const std::string& uri);
-foundation::config::ConfigValue MakeWorkerBusConfig(const std::string& uri);
+foundation::config::ConfigValue MakeMasterBusConfig(
+    const std::string& uri,
+    int result_consumer_threads,
+    int result_consumer_prefetch);
+foundation::config::ConfigValue MakeMasterPublisherBusConfig(
+    const std::string& uri,
+    int publisher_bus_threads);
+foundation::config::ConfigValue MakeWorkerBusConfig(
+    const std::string& uri,
+    int worker_bus_threads,
+    int consumer_prefetch);
 
 foundation::base::Result<void> WaitForConnected(
     module_context::messaging::IMessageBusService* bus,

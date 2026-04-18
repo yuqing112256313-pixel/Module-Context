@@ -78,9 +78,9 @@ ConfigValue MakeConnectionConfig(const std::string& uri) {
     return connection;
 }
 
-ConfigValue MakeWorkerPoolConfig() {
+ConfigValue MakeWorkerPoolConfig(int thread_count) {
     ConfigValue worker_pool = ConfigValue::MakeObject();
-    SetField(&worker_pool, "thread_count", ConfigValue(2));
+    SetField(&worker_pool, "thread_count", ConfigValue(thread_count));
     return worker_pool;
 }
 
@@ -423,10 +423,12 @@ module_context::messaging::IMessageBusService* RabbitMqBusHarness::Service() {
     return &module_;
 }
 
-ConfigValue MakeMasterBusConfig(const std::string& uri) {
+ConfigValue MakeMasterBusConfig(const std::string& uri,
+                              int result_consumer_threads,
+                              int result_consumer_prefetch) {
     ConfigValue root = ConfigValue::MakeObject();
     SetField(&root, "connection", MakeConnectionConfig(uri));
-    SetField(&root, "worker_pool", MakeWorkerPoolConfig());
+    SetField(&root, "worker_pool", MakeWorkerPoolConfig(result_consumer_threads));
 
     ConfigValue topology = ConfigValue::MakeObject();
     ConfigValue exchanges = ConfigValue::MakeArray();
@@ -443,16 +445,17 @@ ConfigValue MakeMasterBusConfig(const std::string& uri) {
     SetField(&root, "publishers", publishers);
 
     ConfigValue consumers = ConfigValue::MakeArray();
-    AppendValue(&consumers, MakeConsumer("perf_result_consumer", kResultQueue, 32));
+    AppendValue(&consumers, MakeConsumer("perf_result_consumer", kResultQueue, result_consumer_prefetch));
     SetField(&root, "consumers", consumers);
 
     return root;
 }
 
-ConfigValue MakeMasterPublisherBusConfig(const std::string& uri) {
+ConfigValue MakeMasterPublisherBusConfig(const std::string& uri,
+                                       int publisher_bus_threads) {
     ConfigValue root = ConfigValue::MakeObject();
     SetField(&root, "connection", MakeConnectionConfig(uri));
-    SetField(&root, "worker_pool", MakeWorkerPoolConfig());
+    SetField(&root, "worker_pool", MakeWorkerPoolConfig(publisher_bus_threads));
 
     ConfigValue topology = ConfigValue::MakeObject();
     ConfigValue exchanges = ConfigValue::MakeArray();
@@ -470,10 +473,12 @@ ConfigValue MakeMasterPublisherBusConfig(const std::string& uri) {
     return root;
 }
 
-ConfigValue MakeWorkerBusConfig(const std::string& uri) {
+ConfigValue MakeWorkerBusConfig(const std::string& uri,
+                              int worker_bus_threads,
+                              int consumer_prefetch) {
     ConfigValue root = ConfigValue::MakeObject();
     SetField(&root, "connection", MakeConnectionConfig(uri));
-    SetField(&root, "worker_pool", MakeWorkerPoolConfig());
+    SetField(&root, "worker_pool", MakeWorkerPoolConfig(worker_bus_threads));
 
     ConfigValue topology = ConfigValue::MakeObject();
     ConfigValue exchanges = ConfigValue::MakeArray();
@@ -490,7 +495,7 @@ ConfigValue MakeWorkerBusConfig(const std::string& uri) {
     SetField(&root, "publishers", publishers);
 
     ConfigValue consumers = ConfigValue::MakeArray();
-    AppendValue(&consumers, MakeConsumer("perf_task_consumer", kTaskQueue, 1));
+    AppendValue(&consumers, MakeConsumer("perf_task_consumer", kTaskQueue, consumer_prefetch));
     SetField(&root, "consumers", consumers);
 
     return root;

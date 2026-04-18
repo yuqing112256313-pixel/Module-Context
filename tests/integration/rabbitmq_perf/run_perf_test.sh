@@ -38,8 +38,15 @@ KEEP_ENV="${MC_KEEP_ENV:-1}"
 RECREATE_RUNTIME="${MC_RECREATE_RUNTIME:-1}"
 IO_MODE="${MC_IO_MODE:-stream}"
 MATERIALIZE_OUTPUT="${MC_MATERIALIZE_OUTPUT:-0}"
-MASTER_WRITER_THREADS="${MC_MASTER_WRITER_THREADS:-2}"
-MASTER_PUBLISHER_THREADS="${MC_MASTER_PUBLISHER_THREADS:-4}"
+MASTER_WRITER_THREADS="${MC_MASTER_WRITER_THREADS:-4}"
+MASTER_PUBLISHER_THREADS="${MC_MASTER_PUBLISHER_THREADS:-8}"
+MASTER_RESULT_THREADS="${MC_MASTER_RESULT_THREADS:-4}"
+MASTER_RESULT_PREFETCH="${MC_MASTER_RESULT_PREFETCH:-128}"
+MASTER_MAX_SCHEDULED_QUEUE="${MC_MASTER_MAX_SCHEDULED_QUEUE:-32}"
+MASTER_MAX_READY_PUBLISH_QUEUE="${MC_MASTER_MAX_READY_PUBLISH_QUEUE:-32}"
+MASTER_MAX_INFLIGHT="${MC_MASTER_MAX_INFLIGHT:-40}"
+WORKER_BUS_THREADS="${MC_WORKER_BUS_THREADS:-4}"
+WORKER_CONSUMER_PREFETCH="${MC_WORKER_CONSUMER_PREFETCH:-8}"
 NOTES="${MC_NOTES:-单机 macOS + Colima + Docker + RabbitMQ，5 个 worker 进程竞争同一任务队列；图片处理耗时为模拟 sleep。}"
 
 IMAGE_DIR="$RUNTIME_DIR/shared/images"
@@ -157,6 +164,8 @@ for index in $(seq 1 "$WORKER_COUNT"); do
     --cleanup-inputs 1 \
     --io-mode "$IO_MODE" \
     --materialize-output "$MATERIALIZE_OUTPUT" \
+    --worker-bus-threads "$WORKER_BUS_THREADS" \
+    --consumer-prefetch "$WORKER_CONSUMER_PREFETCH" \
     --stop-file "$STOP_FILE" >"$worker_log" 2>&1 &
   WORKER_PIDS+=("$!")
 done
@@ -179,6 +188,11 @@ echo "[run] launching master benchmark"
   --materialize-output "$MATERIALIZE_OUTPUT" \
   --writer-threads "$MASTER_WRITER_THREADS" \
   --publisher-threads "$MASTER_PUBLISHER_THREADS" \
+  --result-consumer-threads "$MASTER_RESULT_THREADS" \
+  --result-consumer-prefetch "$MASTER_RESULT_PREFETCH" \
+  --max-scheduled-queue "$MASTER_MAX_SCHEDULED_QUEUE" \
+  --max-ready-publish-queue "$MASTER_MAX_READY_PUBLISH_QUEUE" \
+  --max-inflight "$MASTER_MAX_INFLIGHT" \
   --notes "$NOTES" >"$MASTER_LOG" 2>&1
 
 touch "$STOP_FILE"

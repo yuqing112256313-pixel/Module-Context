@@ -70,6 +70,8 @@ int main(int argc, char** argv) {
     const int timeout_ms = ParseOptionalInt(args, "timeout-ms", 600000);
     const int simulate_process_ms = ParseOptionalInt(args, "simulate-process-ms", 80);
     const int idle_timeout_ms = ParseOptionalInt(args, "idle-timeout-ms", 5000);
+    const int worker_bus_threads = std::max(1, ParseOptionalInt(args, "worker-bus-threads", 4));
+    const int consumer_prefetch = std::max(1, ParseOptionalInt(args, "consumer-prefetch", 8));
     const bool cleanup_inputs = ParseOptionalBool(args, "cleanup-inputs", true);
     const std::string stop_file =
         args.find("stop-file") == args.end() ? std::string() : args.find("stop-file")->second;
@@ -87,7 +89,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    RabbitMqBusHarness harness(MakeWorkerBusConfig(uri.Value()));
+    RabbitMqBusHarness harness(MakeWorkerBusConfig(uri.Value(), worker_bus_threads, consumer_prefetch));
     Result<void> init_result = harness.Init();
     if (!init_result.IsOk()) {
         std::cerr << "worker init failed: " << init_result.GetMessage() << std::endl;
@@ -314,6 +316,8 @@ int main(int argc, char** argv) {
               << simulate_process_ms << ", cleanup_inputs=" << (cleanup_inputs ? 1 : 0)
               << ", io_mode=" << io_mode
               << ", materialize_output=" << (materialize_output ? 1 : 0)
+              << ", worker_bus_threads=" << worker_bus_threads
+              << ", consumer_prefetch=" << consumer_prefetch
               << std::endl;
 
     const std::uint64_t loop_started_ts_ms = NowMs();

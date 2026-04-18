@@ -231,6 +231,11 @@ def main():
         ("Worker 数", scenario.get("worker_count", "0")),
         ("主机写图线程", scenario.get("writer_threads", "1")),
         ("主机发布线程", scenario.get("publisher_threads", "1")),
+        ("结果消费线程", scenario.get("result_consumer_threads", "1")),
+        ("结果消费预取", scenario.get("result_consumer_prefetch", "1")),
+        ("主机最大已调度队列", scenario.get("max_scheduled_queue", "1")),
+        ("主机最大发布就绪队列", scenario.get("max_ready_publish_queue", "1")),
+        ("主机最大 inflight", scenario.get("max_inflight", "1")),
         ("场景 ID", scenario.get("scenario_id", "")),
     ]
 
