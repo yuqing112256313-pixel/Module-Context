@@ -1,5 +1,18 @@
 include(FetchContent)
 
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 4.0)
+    if(NOT DEFINED CMAKE_POLICY_VERSION_MINIMUM OR
+       CMAKE_POLICY_VERSION_MINIMUM VERSION_LESS 3.5)
+        set(CMAKE_POLICY_VERSION_MINIMUM
+            "3.5"
+            CACHE STRING
+            "Minimum policy version for legacy third-party CMake projects."
+            FORCE)
+        message(STATUS
+            "Set CMAKE_POLICY_VERSION_MINIMUM=3.5 for AMQP-CPP compatibility")
+    endif()
+endif()
+
 function(mc_prepare_amqp_build_options)
     set(AMQP-CPP_BUILD_SHARED OFF CACHE BOOL "" FORCE)
     set(AMQP-CPP_LINUX_TCP OFF CACHE BOOL "" FORCE)

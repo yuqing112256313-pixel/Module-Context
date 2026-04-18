@@ -12,6 +12,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 option(MC_BUILD_EXAMPLES "Build examples targets" ON)
 option(MC_BUILD_TESTS "Build test targets" ON)
 option(MC_BUILD_RABBITMQ_MODULE "Build RabbitMQ message bus module" ON)
+option(MC_BUILD_REAL_RABBITMQ_TESTS "Build real RabbitMQ task-flow integration harness" OFF)
 
 set(MC_FOUNDATION_SOURCE_DIR
     ""
@@ -44,6 +45,24 @@ function(mc_prepare_foundation_build_options)
     set(FOUNDATION_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 endfunction()
 
+function(mc_patch_text_file file_path search_text replace_text patch_label)
+    if(NOT EXISTS "${file_path}")
+        return()
+    endif()
+
+    file(READ "${file_path}" _file_content)
+    string(REPLACE
+        "${search_text}"
+        "${replace_text}"
+        _patched_file_content
+        "${_file_content}")
+
+    if(NOT _patched_file_content STREQUAL _file_content)
+        file(WRITE "${file_path}" "${_patched_file_content}")
+        message(STATUS "${patch_label}")
+    endif()
+endfunction()
+
 function(mc_normalize_foundation_source_dir input_dir output_var)
     if(NOT input_dir)
         set(${output_var} "" PARENT_SCOPE)
@@ -67,6 +86,8 @@ function(mc_normalize_foundation_source_dir input_dir output_var)
 endfunction()
 
 function(mc_ensure_foundation_dependency)
+    set(MC_FOUNDATION_RESOLVED_SOURCE_DIR "" PARENT_SCOPE)
+
     if(TARGET foundation::foundation)
         return()
     endif()
@@ -92,6 +113,9 @@ function(mc_ensure_foundation_dependency)
         add_subdirectory(
             "${_foundation_source_dir}"
             "${CMAKE_CURRENT_BINARY_DIR}/_deps/foundation-build")
+        set(MC_FOUNDATION_RESOLVED_SOURCE_DIR
+            "${_foundation_source_dir}"
+            PARENT_SCOPE)
         return()
     endif()
 
@@ -112,38 +136,39 @@ function(mc_ensure_foundation_dependency)
         GIT_SHALLOW TRUE
     )
     FetchContent_MakeAvailable(foundation)
+    if(DEFINED foundation_SOURCE_DIR)
+        set(MC_FOUNDATION_RESOLVED_SOURCE_DIR
+            "${foundation_SOURCE_DIR}"
+            PARENT_SCOPE)
+    endif()
 endfunction()
 
-function(mc_patch_foundation_for_gcc_template_lookup foundation_source_dir)
-    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+function(mc_patch_foundation_source_compatibility foundation_source_dir)
+    if(NOT foundation_source_dir)
         return()
+    endif()
+
+    if(APPLE)
+        mc_patch_text_file(
+            "${foundation_source_dir}/include/foundation/base/Platform.h"
+            "#if defined(__linux__)"
+            "#if defined(__linux__) || defined(__APPLE__)"
+            "Patched foundation Platform.h for Apple POSIX platform detection")
     endif()
 
     set(_plugin_loader_header
         "${foundation_source_dir}/include/foundation/plugin/PluginLoader.h")
-    if(NOT EXISTS "${_plugin_loader_header}")
-        return()
-    endif()
-
-    file(READ "${_plugin_loader_header}" _plugin_loader_content)
-    string(REPLACE
+    mc_patch_text_file(
+        "${_plugin_loader_header}"
         "new_state->library.GetSymbol<"
         "new_state->library.template GetSymbol<"
-        _patched_plugin_loader_content
-        "${_plugin_loader_content}")
-
-    if(NOT _patched_plugin_loader_content STREQUAL _plugin_loader_content)
-        file(WRITE
-            "${_plugin_loader_header}"
-            "${_patched_plugin_loader_content}")
-        message(STATUS
-            "Patched foundation PluginLoader.h for GCC dependent-template lookup")
-    endif()
+        "Patched foundation PluginLoader.h for dependent-template lookup")
 endfunction()
 
 mc_ensure_foundation_dependency()
-if(DEFINED foundation_SOURCE_DIR)
-    mc_patch_foundation_for_gcc_template_lookup("${foundation_SOURCE_DIR}")
+if(MC_FOUNDATION_RESOLVED_SOURCE_DIR)
+    mc_patch_foundation_source_compatibility(
+        "${MC_FOUNDATION_RESOLVED_SOURCE_DIR}")
 endif()
 
 if(NOT TARGET foundation::foundation)

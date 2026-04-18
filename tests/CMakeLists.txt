@@ -124,4 +124,127 @@ if(TARGET rabbitmq_bus)
         NAME mc_rabbitmq_bus_plugin_integration_test
         COMMAND mc_rabbitmq_bus_plugin_integration_test
     )
+
+    add_library(mc_rabbitmq_task_flow_support STATIC
+        integration/rabbitmq_task_flow/common.cpp
+        ../modules/rabbitmq_bus/src/internal/MessageBusServiceProxy.cpp
+        ../modules/rabbitmq_bus/src/RabbitMqBusModule.cpp
+    )
+
+    mc_configure_test_target(mc_rabbitmq_task_flow_support)
+
+    target_include_directories(mc_rabbitmq_task_flow_support
+        PUBLIC
+            ${CMAKE_CURRENT_SOURCE_DIR}/../include
+            ${CMAKE_CURRENT_SOURCE_DIR}/../src
+            ${CMAKE_CURRENT_SOURCE_DIR}/integration/rabbitmq_task_flow
+            ${CMAKE_CURRENT_SOURCE_DIR}/../modules/rabbitmq_bus/src
+            ${CMAKE_CURRENT_SOURCE_DIR}/../modules/rabbitmq_bus/src/internal
+    )
+
+    target_link_libraries(mc_rabbitmq_task_flow_support
+        PUBLIC
+            amqpcpp
+            mc_core_framework
+            foundation::foundation
+    )
+
+    if(WIN32)
+        target_link_libraries(mc_rabbitmq_task_flow_support PUBLIC ws2_32)
+    endif()
+
+    add_executable(mc_rabbitmq_task_master_sim
+        integration/rabbitmq_task_flow/master_sim.cpp
+    )
+
+    mc_configure_test_target(mc_rabbitmq_task_master_sim)
+
+    target_link_libraries(mc_rabbitmq_task_master_sim
+        PRIVATE
+            mc_rabbitmq_task_flow_support
+    )
+
+    add_executable(mc_rabbitmq_task_worker_sim
+        integration/rabbitmq_task_flow/worker_sim.cpp
+    )
+
+    mc_configure_test_target(mc_rabbitmq_task_worker_sim)
+
+    target_link_libraries(mc_rabbitmq_task_worker_sim
+        PRIVATE
+            mc_rabbitmq_task_flow_support
+    )
+
+    add_library(mc_rabbitmq_perf_support STATIC
+        integration/rabbitmq_perf/common.cpp
+        ../modules/rabbitmq_bus/src/internal/MessageBusServiceProxy.cpp
+        ../modules/rabbitmq_bus/src/RabbitMqBusModule.cpp
+    )
+
+    mc_configure_test_target(mc_rabbitmq_perf_support)
+
+    target_include_directories(mc_rabbitmq_perf_support
+        PUBLIC
+            ${CMAKE_CURRENT_SOURCE_DIR}/../include
+            ${CMAKE_CURRENT_SOURCE_DIR}/../src
+            ${CMAKE_CURRENT_SOURCE_DIR}/integration/rabbitmq_perf
+            ${CMAKE_CURRENT_SOURCE_DIR}/../modules/rabbitmq_bus/src
+            ${CMAKE_CURRENT_SOURCE_DIR}/../modules/rabbitmq_bus/src/internal
+    )
+
+    target_link_libraries(mc_rabbitmq_perf_support
+        PUBLIC
+            amqpcpp
+            mc_core_framework
+            foundation::foundation
+    )
+
+    if(WIN32)
+        target_link_libraries(mc_rabbitmq_perf_support PUBLIC ws2_32)
+    endif()
+
+    add_executable(mc_rabbitmq_perf_master
+        integration/rabbitmq_perf/master_perf.cpp
+    )
+
+    mc_configure_test_target(mc_rabbitmq_perf_master)
+
+    target_link_libraries(mc_rabbitmq_perf_master
+        PRIVATE
+            mc_rabbitmq_perf_support
+    )
+
+    add_executable(mc_rabbitmq_perf_worker
+        integration/rabbitmq_perf/worker_perf.cpp
+    )
+
+    mc_configure_test_target(mc_rabbitmq_perf_worker)
+
+    target_link_libraries(mc_rabbitmq_perf_worker
+        PRIVATE
+            mc_rabbitmq_perf_support
+    )
+
+    if(UNIX AND MC_BUILD_REAL_RABBITMQ_TESTS)
+        find_program(MC_DOCKER_EXECUTABLE docker)
+        if(MC_DOCKER_EXECUTABLE)
+            add_test(
+                NAME mc_rabbitmq_task_flow_real_test
+                COMMAND /bin/bash
+                    ${CMAKE_CURRENT_SOURCE_DIR}/integration/rabbitmq_task_flow/run_task_flow_test.sh
+                    $<TARGET_FILE:mc_rabbitmq_task_master_sim>
+                    $<TARGET_FILE:mc_rabbitmq_task_worker_sim>
+                    ${CMAKE_CURRENT_BINARY_DIR}/rabbitmq_task_flow_runtime
+            )
+
+            add_test(
+                NAME mc_rabbitmq_perf_real_test
+                COMMAND /bin/bash
+                    ${CMAKE_CURRENT_SOURCE_DIR}/integration/rabbitmq_perf/run_perf_test.sh
+                    $<TARGET_FILE:mc_rabbitmq_perf_master>
+                    $<TARGET_FILE:mc_rabbitmq_perf_worker>
+                    ${CMAKE_CURRENT_BINARY_DIR}/rabbitmq_perf_runtime
+            )
+        endif()
+    endif()
 endif()
