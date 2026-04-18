@@ -449,6 +449,27 @@ ConfigValue MakeMasterBusConfig(const std::string& uri) {
     return root;
 }
 
+ConfigValue MakeMasterPublisherBusConfig(const std::string& uri) {
+    ConfigValue root = ConfigValue::MakeObject();
+    SetField(&root, "connection", MakeConnectionConfig(uri));
+    SetField(&root, "worker_pool", MakeWorkerPoolConfig());
+
+    ConfigValue topology = ConfigValue::MakeObject();
+    ConfigValue exchanges = ConfigValue::MakeArray();
+    AppendValue(&exchanges, MakeExchange(kTaskExchange));
+    SetField(&topology, "exchanges", exchanges);
+    SetField(&root, "topology", topology);
+
+    ConfigValue publishers = ConfigValue::MakeArray();
+    AppendValue(&publishers, MakePublisher("perf_task_producer", kTaskExchange, kTaskRoutingKey));
+    SetField(&root, "publishers", publishers);
+
+    ConfigValue consumers = ConfigValue::MakeArray();
+    SetField(&root, "consumers", consumers);
+
+    return root;
+}
+
 ConfigValue MakeWorkerBusConfig(const std::string& uri) {
     ConfigValue root = ConfigValue::MakeObject();
     SetField(&root, "connection", MakeConnectionConfig(uri));

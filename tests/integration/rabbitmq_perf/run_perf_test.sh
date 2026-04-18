@@ -38,6 +38,8 @@ KEEP_ENV="${MC_KEEP_ENV:-1}"
 RECREATE_RUNTIME="${MC_RECREATE_RUNTIME:-1}"
 IO_MODE="${MC_IO_MODE:-stream}"
 MATERIALIZE_OUTPUT="${MC_MATERIALIZE_OUTPUT:-0}"
+MASTER_WRITER_THREADS="${MC_MASTER_WRITER_THREADS:-2}"
+MASTER_PUBLISHER_THREADS="${MC_MASTER_PUBLISHER_THREADS:-4}"
 NOTES="${MC_NOTES:-单机 macOS + Colima + Docker + RabbitMQ，5 个 worker 进程竞争同一任务队列；图片处理耗时为模拟 sleep。}"
 
 IMAGE_DIR="$RUNTIME_DIR/shared/images"
@@ -175,6 +177,8 @@ echo "[run] launching master benchmark"
   --timeout-ms "$TIMEOUT_MS" \
   --io-mode "$IO_MODE" \
   --materialize-output "$MATERIALIZE_OUTPUT" \
+  --writer-threads "$MASTER_WRITER_THREADS" \
+  --publisher-threads "$MASTER_PUBLISHER_THREADS" \
   --notes "$NOTES" >"$MASTER_LOG" 2>&1
 
 touch "$STOP_FILE"

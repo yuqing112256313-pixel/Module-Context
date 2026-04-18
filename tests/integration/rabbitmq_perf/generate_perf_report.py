@@ -229,6 +229,8 @@ def main():
         ("图片大小", format_bytes(to_int(scenario.get("image_bytes", "0")))),
         ("任务总数", scenario.get("task_count", "0")),
         ("Worker 数", scenario.get("worker_count", "0")),
+        ("主机写图线程", scenario.get("writer_threads", "1")),
+        ("主机发布线程", scenario.get("publisher_threads", "1")),
         ("场景 ID", scenario.get("scenario_id", "")),
     ]
 

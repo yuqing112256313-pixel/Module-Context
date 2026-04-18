@@ -3,9 +3,11 @@
 #include "foundation/base/ErrorCode.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
+#include <deque>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -27,6 +29,7 @@ using module_context::messaging::PublishRequest;
 using module_context::tests::rabbitmq_perf::EnsureDirectory;
 using module_context::tests::rabbitmq_perf::JoinPath;
 using module_context::tests::rabbitmq_perf::MakeMasterBusConfig;
+using module_context::tests::rabbitmq_perf::MakeMasterPublisherBusConfig;
 using module_context::tests::rabbitmq_perf::NowMs;
 using module_context::tests::rabbitmq_perf::ParseArguments;
 using module_context::tests::rabbitmq_perf::ParseOptionalInt;
@@ -57,6 +60,18 @@ struct PublishMetrics {
 struct ReceivedMetrics {
     ResultMessage result;
     std::uint64_t master_receive_ts_ms;
+};
+
+struct ScheduledTask {
+    int index;
+    std::string task_id;
+    std::string image_path;
+    std::size_t image_bytes;
+};
+
+struct ReadyPublishTask {
+    int index;
+    PublishMetrics metrics;
 };
 
 std::string CsvEscape(const std::string& value) {
@@ -95,6 +110,8 @@ Result<void> WriteScenarioSummary(
     int task_count,
     int target_rate,
     int simulate_process_ms,
+    int writer_threads,
+    int publisher_threads,
     std::size_t image_bytes,
     const std::string& io_mode,
     bool materialize_output,
@@ -107,6 +124,8 @@ Result<void> WriteScenarioSummary(
     output << "task_count=" << task_count << "\n";
     output << "target_rate=" << target_rate << "\n";
     output << "simulate_process_ms=" << simulate_process_ms << "\n";
+    output << "writer_threads=" << writer_threads << "\n";
+    output << "publisher_threads=" << publisher_threads << "\n";
     output << "image_bytes=" << image_bytes << "\n";
     output << "io_mode=" << io_mode << "\n";
     output << "materialize_output=" << (materialize_output ? 1 : 0) << "\n";
@@ -255,6 +274,8 @@ int main(int argc, char** argv) {
     const int target_rate = ParseOptionalInt(args, "target-rate", 60);
     const int worker_count = ParseOptionalInt(args, "worker-count", 5);
     const int simulate_process_ms = ParseOptionalInt(args, "simulate-process-ms", 80);
+    const int writer_threads = std::max(1, ParseOptionalInt(args, "writer-threads", 2));
+    const int publisher_threads = std::max(1, ParseOptionalInt(args, "publisher-threads", 4));
     const std::size_t image_bytes = ParseOptionalSize(args, "image-bytes", 20u * 1024u * 1024u);
     const std::string scenario_id =
         args.find("scenario-id") == args.end() ? DefaultScenarioId() : args.find("scenario-id")->second;
@@ -354,6 +375,8 @@ int main(int argc, char** argv) {
         task_count,
         target_rate,
         simulate_process_ms,
+        writer_threads,
+        publisher_threads,
         image_bytes,
         io_mode,
         materialize_output,
@@ -374,15 +397,238 @@ int main(int argc, char** argv) {
               << ", target_rate=" << target_rate << "/s"
               << ", image_bytes=" << image_bytes
               << ", io_mode=" << io_mode
-              << ", materialize_output=" << (materialize_output ? 1 : 0) << std::endl;
+              << ", materialize_output=" << (materialize_output ? 1 : 0)
+              << ", writer_threads=" << writer_threads
+              << ", publisher_threads=" << publisher_threads << std::endl;
 
+    const std::string master_uri = uri.Value();
     const std::chrono::steady_clock::time_point publish_anchor = std::chrono::steady_clock::now();
     const double interval_ms = target_rate > 0 ? (1000.0 / static_cast<double>(target_rate)) : 0.0;
 
-    std::vector<PublishMetrics> publishes;
-    publishes.reserve(static_cast<std::size_t>(task_count));
+    std::vector<PublishMetrics> publishes(static_cast<std::size_t>(task_count));
+    std::deque<ScheduledTask> scheduled_tasks;
+    std::deque<ReadyPublishTask> ready_publish_tasks;
+    std::mutex scheduled_tasks_mutex;
+    std::condition_variable scheduled_tasks_cv;
+    std::mutex ready_publish_mutex;
+    std::condition_variable ready_publish_cv;
+    std::mutex pipeline_error_mutex;
+    std::string pipeline_error;
+    bool schedule_complete = false;
+    bool publish_input_complete = false;
+    std::atomic<bool> abort_pipeline(false);
+    std::atomic<int> active_writers(writer_threads);
+    std::atomic<std::size_t> published_count(0);
+
+    const auto set_pipeline_error =
+        [&pipeline_error_mutex,
+         &pipeline_error,
+         &abort_pipeline,
+         &scheduled_tasks_cv,
+         &ready_publish_cv](const std::string& message) {
+            bool should_log = false;
+            {
+                std::lock_guard<std::mutex> lock(pipeline_error_mutex);
+                if (pipeline_error.empty()) {
+                    pipeline_error = message;
+                    should_log = true;
+                }
+            }
+            abort_pipeline.store(true);
+            scheduled_tasks_cv.notify_all();
+            ready_publish_cv.notify_all();
+            if (should_log) {
+                std::cerr << message << std::endl;
+            }
+        };
+
+    std::vector<std::thread> writer_pool;
+    writer_pool.reserve(static_cast<std::size_t>(writer_threads));
+    for (int writer_index = 0; writer_index < writer_threads; ++writer_index) {
+        writer_pool.push_back(std::thread(
+            [writer_index,
+             &scheduled_tasks,
+             &scheduled_tasks_mutex,
+             &scheduled_tasks_cv,
+             &schedule_complete,
+             &ready_publish_tasks,
+             &ready_publish_mutex,
+             &ready_publish_cv,
+             &publish_input_complete,
+             &active_writers,
+             &abort_pipeline,
+             &set_pipeline_error,
+             image_bytes,
+             use_mmap]() {
+                while (true) {
+                    ScheduledTask task;
+                    {
+                        std::unique_lock<std::mutex> lock(scheduled_tasks_mutex);
+                        scheduled_tasks_cv.wait(lock, [&scheduled_tasks, &schedule_complete, &abort_pipeline]() {
+                            return abort_pipeline.load() || !scheduled_tasks.empty() || schedule_complete;
+                        });
+                        if (abort_pipeline.load()) {
+                            break;
+                        }
+                        if (scheduled_tasks.empty()) {
+                            if (schedule_complete) {
+                                break;
+                            }
+                            continue;
+                        }
+                        task = scheduled_tasks.front();
+                        scheduled_tasks.pop_front();
+                    }
+
+                    ReadyPublishTask ready_task;
+                    ready_task.index = task.index;
+                    ready_task.metrics.task_id = task.task_id;
+                    ready_task.metrics.image_path = task.image_path;
+                    ready_task.metrics.image_bytes = task.image_bytes;
+                    ready_task.metrics.image_write_start_ts_ms = NowMs();
+                    Result<void> image_result =
+                        WriteLargePseudoImage(task.image_path, image_bytes, task.index + 17, use_mmap);
+                    ready_task.metrics.image_write_done_ts_ms = NowMs();
+                    ready_task.metrics.publish_ts_ms = 0;
+                    ready_task.metrics.publish_done_ts_ms = 0;
+                    if (!image_result.IsOk()) {
+                        std::ostringstream stream;
+                        stream << "perf master writer-" << (writer_index + 1)
+                               << " failed to write image '" << task.image_path
+                               << "': " << image_result.GetMessage();
+                        set_pipeline_error(stream.str());
+                        break;
+                    }
+
+                    {
+                        std::lock_guard<std::mutex> lock(ready_publish_mutex);
+                        ready_publish_tasks.push_back(ready_task);
+                    }
+                    ready_publish_cv.notify_one();
+                }
+
+                if (active_writers.fetch_sub(1) == 1) {
+                    {
+                        std::lock_guard<std::mutex> lock(ready_publish_mutex);
+                        publish_input_complete = true;
+                    }
+                    ready_publish_cv.notify_all();
+                }
+            }));
+    }
+
+    std::vector<std::thread> publisher_pool;
+    publisher_pool.reserve(static_cast<std::size_t>(publisher_threads));
+    for (int publisher_index = 0; publisher_index < publisher_threads; ++publisher_index) {
+        publisher_pool.push_back(std::thread(
+            [publisher_index,
+             &ready_publish_tasks,
+             &ready_publish_mutex,
+             &ready_publish_cv,
+             &publish_input_complete,
+             &abort_pipeline,
+             &set_pipeline_error,
+             &publishes,
+             &published_count,
+             &master_uri]() {
+                RabbitMqBusHarness publish_harness(MakeMasterPublisherBusConfig(master_uri));
+                Result<void> init_result = publish_harness.Init();
+                if (!init_result.IsOk()) {
+                    std::ostringstream stream;
+                    stream << "perf master publisher-" << (publisher_index + 1)
+                           << " init failed: " << init_result.GetMessage();
+                    set_pipeline_error(stream.str());
+                    return;
+                }
+
+                Result<void> start_result = publish_harness.Start();
+                if (!start_result.IsOk()) {
+                    std::ostringstream stream;
+                    stream << "perf master publisher-" << (publisher_index + 1)
+                           << " start failed: " << start_result.GetMessage();
+                    set_pipeline_error(stream.str());
+                    return;
+                }
+
+                module_context::messaging::IMessageBusService* publish_bus = publish_harness.Service();
+                if (publish_bus == NULL) {
+                    std::ostringstream stream;
+                    stream << "perf master publisher-" << (publisher_index + 1)
+                           << " bus service unavailable";
+                    set_pipeline_error(stream.str());
+                    return;
+                }
+
+                Result<void> wait_connected = WaitForConnected(publish_bus, 30000);
+                if (!wait_connected.IsOk()) {
+                    std::ostringstream stream;
+                    stream << "perf master publisher-" << (publisher_index + 1)
+                           << " failed to connect RabbitMQ: " << wait_connected.GetMessage();
+                    set_pipeline_error(stream.str());
+                    return;
+                }
+
+                while (true) {
+                    ReadyPublishTask ready_task;
+                    {
+                        std::unique_lock<std::mutex> lock(ready_publish_mutex);
+                        ready_publish_cv.wait(lock, [&ready_publish_tasks, &publish_input_complete, &abort_pipeline]() {
+                            return abort_pipeline.load() || !ready_publish_tasks.empty() || publish_input_complete;
+                        });
+                        if (abort_pipeline.load() && ready_publish_tasks.empty()) {
+                            break;
+                        }
+                        if (ready_publish_tasks.empty()) {
+                            if (publish_input_complete) {
+                                break;
+                            }
+                            continue;
+                        }
+                        ready_task = ready_publish_tasks.front();
+                        ready_publish_tasks.pop_front();
+                    }
+
+                    TaskMessage task_message;
+                    task_message.task_id = ready_task.metrics.task_id;
+                    task_message.image_path = ready_task.metrics.image_path;
+                    task_message.image_bytes = ready_task.metrics.image_bytes;
+                    task_message.publish_ts_ms = NowMs();
+                    ready_task.metrics.publish_ts_ms = task_message.publish_ts_ms;
+
+                    PublishRequest request;
+                    request.exchange = kTaskExchange;
+                    request.routing_key = kTaskRoutingKey;
+                    request.content_type = "text/plain";
+                    request.correlation_id = ready_task.metrics.task_id;
+                    request.persistent = true;
+                    const std::string payload = SerializeTaskMessage(task_message);
+                    request.payload.assign(payload.begin(), payload.end());
+
+                    Result<void> publish_result = publish_bus->Publish(request);
+                    ready_task.metrics.publish_done_ts_ms = NowMs();
+                    publishes[static_cast<std::size_t>(ready_task.index)] = ready_task.metrics;
+                    if (!publish_result.IsOk()) {
+                        std::ostringstream stream;
+                        stream << "perf master publisher-" << (publisher_index + 1)
+                               << " failed to publish task '" << ready_task.metrics.task_id
+                               << "': " << publish_result.GetMessage();
+                        set_pipeline_error(stream.str());
+                        break;
+                    }
+
+                    const std::size_t published_now = published_count.fetch_add(1) + 1;
+                    if (published_now <= 5 || published_now % 20 == 0) {
+                        std::cout << "[master] published " << published_now << "/" << publishes.size()
+                                  << " task_id=" << ready_task.metrics.task_id << std::endl;
+                    }
+                }
+            }));
+    }
 
     for (int index = 0; index < task_count; ++index) {
+        if (abort_pipeline.load()) {
+            break;
+        }
         if (interval_ms > 0.0) {
             const std::chrono::steady_clock::time_point target_time =
                 publish_anchor + std::chrono::milliseconds(static_cast<long long>(interval_ms * index));
@@ -394,57 +640,42 @@ int main(int argc, char** argv) {
 
         std::ostringstream task_id_stream;
         task_id_stream << scenario_id << "-task-" << std::setw(4) << std::setfill('0') << (index + 1);
-        const std::string task_id = task_id_stream.str();
-        const std::string image_path = JoinPath(image_dir.Value(), task_id + ".ppm");
+        ScheduledTask scheduled_task;
+        scheduled_task.index = index;
+        scheduled_task.task_id = task_id_stream.str();
+        scheduled_task.image_path = JoinPath(image_dir.Value(), scheduled_task.task_id + ".ppm");
+        scheduled_task.image_bytes = image_bytes;
 
-        PublishMetrics metrics;
-        metrics.task_id = task_id;
-        metrics.image_path = image_path;
-        metrics.image_bytes = image_bytes;
-        metrics.image_write_start_ts_ms = NowMs();
-        Result<void> image_result = WriteLargePseudoImage(image_path, image_bytes, index + 17, use_mmap);
-        metrics.image_write_done_ts_ms = NowMs();
-        if (!image_result.IsOk()) {
-            std::cerr << "perf master failed to write image '" << image_path
-                      << "': " << image_result.GetMessage() << std::endl;
-            (void)WritePublishCsv(publish_csv_path, publishes);
-            (void)harness.Stop();
-            (void)harness.Fini();
-            return 1;
+        {
+            std::lock_guard<std::mutex> lock(scheduled_tasks_mutex);
+            scheduled_tasks.push_back(scheduled_task);
         }
+        scheduled_tasks_cv.notify_one();
+    }
 
-        TaskMessage task_message;
-        task_message.task_id = task_id;
-        task_message.image_path = image_path;
-        task_message.image_bytes = image_bytes;
-        task_message.publish_ts_ms = NowMs();
-        metrics.publish_ts_ms = task_message.publish_ts_ms;
+    {
+        std::lock_guard<std::mutex> lock(scheduled_tasks_mutex);
+        schedule_complete = true;
+    }
+    scheduled_tasks_cv.notify_all();
 
-        PublishRequest request;
-        request.exchange = kTaskExchange;
-        request.routing_key = kTaskRoutingKey;
-        request.content_type = "text/plain";
-        request.correlation_id = task_id;
-        request.persistent = true;
-        const std::string payload = SerializeTaskMessage(task_message);
-        request.payload.assign(payload.begin(), payload.end());
+    for (std::size_t index = 0; index < writer_pool.size(); ++index) {
+        writer_pool[index].join();
+    }
+    for (std::size_t index = 0; index < publisher_pool.size(); ++index) {
+        publisher_pool[index].join();
+    }
 
-        Result<void> publish_result = bus->Publish(request);
-        metrics.publish_done_ts_ms = NowMs();
-        publishes.push_back(metrics);
-        if (!publish_result.IsOk()) {
-            std::cerr << "perf master failed to publish task '" << task_id
-                      << "': " << publish_result.GetMessage() << std::endl;
-            (void)WritePublishCsv(publish_csv_path, publishes);
-            (void)harness.Stop();
-            (void)harness.Fini();
-            return 1;
-        }
-
-        if (index < 5 || (index + 1) % 20 == 0) {
-            std::cout << "[master] published " << (index + 1) << "/" << task_count
-                      << " task_id=" << task_id << std::endl;
-        }
+    std::string pipeline_error_message;
+    {
+        std::lock_guard<std::mutex> lock(pipeline_error_mutex);
+        pipeline_error_message = pipeline_error;
+    }
+    if (!pipeline_error_message.empty()) {
+        (void)WritePublishCsv(publish_csv_path, publishes);
+        (void)harness.Stop();
+        (void)harness.Fini();
+        return 1;
     }
 
     const std::chrono::steady_clock::time_point wait_deadline =

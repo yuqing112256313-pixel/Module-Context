@@ -108,6 +108,7 @@ private:
 };
 
 foundation::config::ConfigValue MakeMasterBusConfig(const std::string& uri);
+foundation::config::ConfigValue MakeMasterPublisherBusConfig(const std::string& uri);
 foundation::config::ConfigValue MakeWorkerBusConfig(const std::string& uri);
 
 foundation::base::Result<void> WaitForConnected(
