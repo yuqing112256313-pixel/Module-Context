@@ -32,12 +32,13 @@ using module_context::tests::rabbitmq_perf::ParseOptionalInt;
 using module_context::tests::rabbitmq_perf::ParseTaskMessage;
 using module_context::tests::rabbitmq_perf::RabbitMqBusHarness;
 using module_context::tests::rabbitmq_perf::ReadBinaryFile;
+using module_context::tests::rabbitmq_perf::ReadMappedFileForProcessing;
 using module_context::tests::rabbitmq_perf::RemoveFileIfExists;
 using module_context::tests::rabbitmq_perf::RequireArgument;
 using module_context::tests::rabbitmq_perf::ResultMessage;
 using module_context::tests::rabbitmq_perf::SerializeResultMessage;
 using module_context::tests::rabbitmq_perf::WaitForConnected;
-using module_context::tests::rabbitmq_perf::WriteBinaryFile;
+using module_context::tests::rabbitmq_perf::WriteBinaryFileRecoverable;
 
 const char kResultExchange[] = "mc.perf.result.exchange";
 const char kResultRoutingKey[] = "result.ready";
@@ -72,6 +73,12 @@ int main(int argc, char** argv) {
     const bool cleanup_inputs = ParseOptionalBool(args, "cleanup-inputs", true);
     const std::string stop_file =
         args.find("stop-file") == args.end() ? std::string() : args.find("stop-file")->second;
+    const std::string io_mode =
+        args.find("io-mode") == args.end() ? std::string("stream") : args.find("io-mode")->second;
+    const bool use_mmap = io_mode == "mmap";
+    const bool materialize_output =
+        args.find("materialize-output") == args.end() ? false :
+            (args.find("materialize-output")->second == "1" || args.find("materialize-output")->second == "true");
 
     Result<void> ensure_output_dir = EnsureDirectory(output_dir.Value());
     if (!ensure_output_dir.IsOk()) {
@@ -109,6 +116,8 @@ int main(int argc, char** argv) {
          &last_activity_ts_ms,
          cleanup_inputs,
          simulate_process_ms,
+         use_mmap,
+         materialize_output,
          &output_dir_value,
          &worker_id_value](const IncomingMessage& incoming) {
             {
@@ -150,25 +159,60 @@ int main(int argc, char** argv) {
             result.output_deleted = false;
 
             std::vector<char> image_data;
-            Result<std::vector<char> > read_result = ReadBinaryFile(task.Value().image_path);
-            result.read_done_ts_ms = NowMs();
-            if (!read_result.IsOk()) {
-                result.status = "image_read_failed";
-                result.error_message = read_result.GetMessage();
+            std::uint64_t rolling_checksum = 0;
+            if (use_mmap) {
+                Result<void> mapped_read_result = ReadMappedFileForProcessing(
+                    task.Value().image_path,
+                    &result.image_bytes,
+                    &rolling_checksum);
+                result.read_done_ts_ms = NowMs();
+                if (!mapped_read_result.IsOk()) {
+                    result.status = "image_read_failed";
+                    result.error_message = mapped_read_result.GetMessage();
+                }
             } else {
-                image_data = read_result.Value();
-                result.image_bytes = image_data.size();
+                Result<std::vector<char> > read_result = ReadBinaryFile(task.Value().image_path);
+                result.read_done_ts_ms = NowMs();
+                if (!read_result.IsOk()) {
+                    result.status = "image_read_failed";
+                    result.error_message = read_result.GetMessage();
+                } else {
+                    image_data = read_result.Value();
+                    result.image_bytes = image_data.size();
+                    for (std::size_t index = 0; index < image_data.size(); index += 4096) {
+                        rolling_checksum += static_cast<unsigned char>(image_data[index]);
+                    }
+                }
             }
 
             if (result.status == "processed") {
                 std::this_thread::sleep_for(std::chrono::milliseconds(simulate_process_ms));
                 result.process_done_ts_ms = NowMs();
 
-                Result<void> write_result = WriteBinaryFile(result.output_path, image_data);
-                result.output_write_done_ts_ms = NowMs();
-                if (!write_result.IsOk()) {
-                    result.status = "image_write_failed";
-                    result.error_message = write_result.GetMessage();
+                if (materialize_output) {
+                    if (use_mmap) {
+                        std::vector<char> manifest;
+                        std::ostringstream stream;
+                        stream << "mapped_checksum=" << rolling_checksum << "\n";
+                        const std::string manifest_text = stream.str();
+                        manifest.assign(manifest_text.begin(), manifest_text.end());
+                        Result<void> write_result = WriteBinaryFileRecoverable(result.output_path, manifest, true);
+                        result.output_write_done_ts_ms = NowMs();
+                        if (!write_result.IsOk()) {
+                            result.status = "image_write_failed";
+                            result.error_message = write_result.GetMessage();
+                        }
+                    } else {
+                        Result<void> write_result = WriteBinaryFileRecoverable(result.output_path, image_data, false);
+                        result.output_write_done_ts_ms = NowMs();
+                        if (!write_result.IsOk()) {
+                            result.status = "image_write_failed";
+                            result.error_message = write_result.GetMessage();
+                        }
+                    }
+                } else {
+                    result.output_path.clear();
+                    result.output_write_done_ts_ms = result.process_done_ts_ms;
                 }
             } else {
                 result.process_done_ts_ms = result.read_done_ts_ms;
@@ -177,7 +221,7 @@ int main(int argc, char** argv) {
 
             if (cleanup_inputs) {
                 Result<void> remove_output_result = foundation::base::MakeSuccess();
-                if (result.status == "processed") {
+                if (result.status == "processed" && !result.output_path.empty()) {
                     remove_output_result = RemoveFileIfExists(result.output_path);
                 }
                 Result<void> remove_input_result = RemoveFileIfExists(task.Value().image_path);
@@ -210,7 +254,7 @@ int main(int argc, char** argv) {
                 std::cerr << "[worker " << worker_id_value << "] failed to publish result for task_id="
                           << result.task_id << ": " << publish_result.GetMessage() << std::endl;
                 if (cleanup_inputs && !image_data.empty()) {
-                    (void)WriteBinaryFile(task.Value().image_path, image_data);
+                    (void)WriteBinaryFileRecoverable(task.Value().image_path, image_data, false);
                 }
                 {
                     std::lock_guard<std::mutex> lock(state_mutex);
@@ -268,6 +312,8 @@ int main(int argc, char** argv) {
 
     std::cout << "[worker " << worker_id.Value() << "] connected, simulate_process_ms="
               << simulate_process_ms << ", cleanup_inputs=" << (cleanup_inputs ? 1 : 0)
+              << ", io_mode=" << io_mode
+              << ", materialize_output=" << (materialize_output ? 1 : 0)
               << std::endl;
 
     const std::uint64_t loop_started_ts_ms = NowMs();

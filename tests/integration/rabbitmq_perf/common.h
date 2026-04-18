@@ -124,11 +124,20 @@ foundation::base::Result<std::vector<char> > ReadBinaryFile(const std::string& p
 foundation::base::Result<void> WriteBinaryFile(
     const std::string& path,
     const std::vector<char>& data);
+foundation::base::Result<void> WriteBinaryFileRecoverable(
+    const std::string& path,
+    const std::vector<char>& data,
+    bool use_mmap);
 foundation::base::Result<void> RemoveFileIfExists(const std::string& path);
 foundation::base::Result<void> WriteLargePseudoImage(
     const std::string& path,
     std::size_t target_bytes,
-    int seed);
+    int seed,
+    bool use_mmap);
+foundation::base::Result<void> ReadMappedFileForProcessing(
+    const std::string& path,
+    std::size_t* image_bytes,
+    std::uint64_t* rolling_checksum);
 std::uint64_t NowMs();
 
 std::string SerializeTaskMessage(const TaskMessage& message);

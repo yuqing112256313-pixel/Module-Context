@@ -6,12 +6,19 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <iterator>
 #include <sstream>
 #include <sys/stat.h>
 #if defined(_WIN32)
 #include <direct.h>
+#include <io.h>
+#include <windows.h>
+#else
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <unistd.h>
 #endif
 #include <thread>
 
@@ -202,6 +209,104 @@ bool ParseBoolValue(const std::string& value) {
 std::string BoolString(bool value) {
     return value ? "1" : "0";
 }
+
+std::string TempPathForRecoverableWrite(const std::string& path) {
+    return path + ".tmp";
+}
+
+Result<void> RenameReplaceFile(const std::string& from, const std::string& to) {
+#if defined(_WIN32)
+    if (!MoveFileExA(from.c_str(), to.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        return MakeError(
+            ErrorCode::kInvalidState,
+            "Failed to rename temp file from '" + from + "' to '" + to + "'");
+    }
+#else
+    if (rename(from.c_str(), to.c_str()) != 0) {
+        return MakeError(
+            ErrorCode::kInvalidState,
+            "Failed to rename temp file from '" + from + "' to '" + to + "', errno=" +
+                std::to_string(errno));
+    }
+#endif
+    return foundation::base::MakeSuccess();
+}
+
+#if !defined(_WIN32)
+struct PosixMappedRegion {
+    int fd;
+    void* address;
+    std::size_t size;
+
+    PosixMappedRegion() : fd(-1), address(MAP_FAILED), size(0) {}
+};
+
+Result<void> OpenAndMapFile(const std::string& path,
+                            bool writable,
+                            std::size_t size,
+                            PosixMappedRegion* region) {
+    const int flags = writable ? (O_RDWR | O_CREAT | O_TRUNC) : O_RDONLY;
+    const mode_t mode = 0644;
+    region->fd = open(path.c_str(), flags, mode);
+    if (region->fd < 0) {
+        return MakeError(ErrorCode::kInvalidState, "Failed to open file '" + path + "'");
+    }
+
+    if (writable) {
+        if (ftruncate(region->fd, static_cast<off_t>(size)) != 0) {
+            close(region->fd);
+            region->fd = -1;
+            return MakeError(ErrorCode::kInvalidState, "Failed to resize file '" + path + "'");
+        }
+    } else {
+        struct stat info;
+        if (fstat(region->fd, &info) != 0) {
+            close(region->fd);
+            region->fd = -1;
+            return MakeError(ErrorCode::kInvalidState, "Failed to stat file '" + path + "'");
+        }
+        size = static_cast<std::size_t>(info.st_size);
+    }
+
+    if (size == 0) {
+        region->size = 0;
+        return foundation::base::MakeSuccess();
+    }
+
+    region->address = mmap(
+        NULL,
+        size,
+        writable ? (PROT_READ | PROT_WRITE) : PROT_READ,
+        MAP_SHARED,
+        region->fd,
+        0);
+    if (region->address == MAP_FAILED) {
+        close(region->fd);
+        region->fd = -1;
+        return MakeError(ErrorCode::kInvalidState, "Failed to mmap file '" + path + "'");
+    }
+    region->size = size;
+    return foundation::base::MakeSuccess();
+}
+
+void CloseMappedRegion(PosixMappedRegion* region, bool flush) {
+    if (region->address != MAP_FAILED && region->address != NULL && region->size > 0) {
+        if (flush) {
+            (void)msync(region->address, region->size, MS_SYNC);
+        }
+        (void)munmap(region->address, region->size);
+    }
+    if (region->fd >= 0) {
+        if (flush) {
+            (void)fsync(region->fd);
+        }
+        (void)close(region->fd);
+    }
+    region->fd = -1;
+    region->address = MAP_FAILED;
+    region->size = 0;
+}
+#endif
 
 }  // namespace
 
@@ -461,16 +566,28 @@ Result<void> WriteTextFile(const std::string& path, const std::string& content) 
 }
 
 Result<std::vector<char> > ReadBinaryFile(const std::string& path) {
-    std::ifstream input(path.c_str(), std::ios::in | std::ios::binary);
+    std::ifstream input(path.c_str(), std::ios::in | std::ios::binary | std::ios::ate);
     if (!input.is_open()) {
         return Result<std::vector<char> >(
             ErrorCode::kInvalidState,
             "Failed to open input file '" + path + "'");
     }
 
-    std::vector<char> data((std::istreambuf_iterator<char>(input)),
-                           std::istreambuf_iterator<char>());
-    if (input.bad()) {
+    const std::ifstream::pos_type end_position = input.tellg();
+    if (end_position < 0) {
+        return Result<std::vector<char> >(
+            ErrorCode::kInvalidState,
+            "Failed to determine input file size for '" + path + "'");
+    }
+
+    const std::size_t size = static_cast<std::size_t>(end_position);
+    input.seekg(0, std::ios::beg);
+
+    std::vector<char> data(size);
+    if (size > 0) {
+        input.read(&data[0], static_cast<std::streamsize>(size));
+    }
+    if (!input.good() && !input.eof()) {
         return Result<std::vector<char> >(
             ErrorCode::kInvalidState,
             "Failed while reading input file '" + path + "'");
@@ -500,6 +617,39 @@ Result<void> WriteBinaryFile(const std::string& path, const std::vector<char>& d
     return foundation::base::MakeSuccess();
 }
 
+Result<void> WriteBinaryFileRecoverable(const std::string& path,
+                                        const std::vector<char>& data,
+                                        bool use_mmap) {
+    Result<void> ensure_result = EnsureDirectory(ParentPath(path));
+    if (!ensure_result.IsOk()) {
+        return ensure_result;
+    }
+
+    const std::string temp_path = TempPathForRecoverableWrite(path);
+    (void)RemoveFileIfExists(temp_path);
+
+#if !defined(_WIN32)
+    if (use_mmap) {
+        PosixMappedRegion region;
+        Result<void> map_result = OpenAndMapFile(temp_path, true, data.size(), &region);
+        if (!map_result.IsOk()) {
+            return map_result;
+        }
+        if (region.size > 0) {
+            std::memcpy(region.address, &data[0], region.size);
+        }
+        CloseMappedRegion(&region, true);
+        return RenameReplaceFile(temp_path, path);
+    }
+#endif
+
+    Result<void> write_result = WriteBinaryFile(temp_path, data);
+    if (!write_result.IsOk()) {
+        return write_result;
+    }
+    return RenameReplaceFile(temp_path, path);
+}
+
 Result<void> RemoveFileIfExists(const std::string& path) {
     if (path.empty()) {
         return foundation::base::MakeSuccess();
@@ -512,44 +662,66 @@ Result<void> RemoveFileIfExists(const std::string& path) {
 
 Result<void> WriteLargePseudoImage(const std::string& path,
                                    std::size_t target_bytes,
-                                   int seed) {
+                                   int seed,
+                                   bool use_mmap) {
     Result<void> ensure_result = EnsureDirectory(ParentPath(path));
     if (!ensure_result.IsOk()) {
         return ensure_result;
     }
 
-    std::ofstream output(path.c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
+    const std::string header = "P6\n4096 1706\n255\n";
+    const std::size_t final_size = target_bytes < header.size() ? header.size() : target_bytes;
+    const std::string temp_path = TempPathForRecoverableWrite(path);
+    (void)RemoveFileIfExists(temp_path);
+
+#if !defined(_WIN32)
+    if (use_mmap) {
+        PosixMappedRegion region;
+        Result<void> map_result = OpenAndMapFile(temp_path, true, final_size, &region);
+        if (!map_result.IsOk()) {
+            return map_result;
+        }
+
+        char* output = static_cast<char*>(region.address);
+        if (region.size > 0) {
+            std::memcpy(output, header.data(), header.size());
+            for (std::size_t index = header.size(); index < final_size; ++index) {
+                output[index] = static_cast<char>((seed + static_cast<int>(index)) % 251);
+            }
+        }
+        CloseMappedRegion(&region, true);
+        return RenameReplaceFile(temp_path, path);
+    }
+#endif
+
+    std::ofstream output(temp_path.c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
     if (!output.is_open()) {
         return MakeError(ErrorCode::kInvalidState, "Failed to open image file '" + path + "'");
     }
 
-    const std::string header = "P6\n4096 1706\n255\n";
     output.write(header.data(), static_cast<std::streamsize>(header.size()));
     if (!output.good()) {
         return MakeError(ErrorCode::kInvalidState, "Failed to write image header to '" + path + "'");
     }
 
-    if (target_bytes <= header.size()) {
-        output.close();
-        return foundation::base::MakeSuccess();
-    }
-
-    const std::size_t payload_size = target_bytes - header.size();
-    const std::size_t block_size = 1024 * 1024;
-    std::vector<char> block(block_size);
-    for (std::size_t index = 0; index < block.size(); ++index) {
-        block[index] = static_cast<char>((seed + static_cast<int>(index)) % 251);
-    }
-
-    std::size_t written = 0;
-    while (written < payload_size) {
-        const std::size_t remaining = payload_size - written;
-        const std::size_t chunk = remaining < block.size() ? remaining : block.size();
-        output.write(&block[0], static_cast<std::streamsize>(chunk));
-        if (!output.good()) {
-            return MakeError(ErrorCode::kInvalidState, "Failed while writing pseudo image '" + path + "'");
+    if (final_size > header.size()) {
+        const std::size_t payload_size = final_size - header.size();
+        const std::size_t block_size = 1024 * 1024;
+        std::vector<char> block(block_size);
+        for (std::size_t index = 0; index < block.size(); ++index) {
+            block[index] = static_cast<char>((seed + static_cast<int>(index)) % 251);
         }
-        written += chunk;
+
+        std::size_t written = 0;
+        while (written < payload_size) {
+            const std::size_t remaining = payload_size - written;
+            const std::size_t chunk = remaining < block.size() ? remaining : block.size();
+            output.write(&block[0], static_cast<std::streamsize>(chunk));
+            if (!output.good()) {
+                return MakeError(ErrorCode::kInvalidState, "Failed while writing pseudo image '" + path + "'");
+            }
+            written += chunk;
+        }
     }
 
     output.close();
@@ -557,7 +729,53 @@ Result<void> WriteLargePseudoImage(const std::string& path,
         return MakeError(ErrorCode::kInvalidState, "Failed to finalize pseudo image '" + path + "'");
     }
 
+    return RenameReplaceFile(temp_path, path);
+}
+
+Result<void> ReadMappedFileForProcessing(const std::string& path,
+                                         std::size_t* image_bytes,
+                                         std::uint64_t* rolling_checksum) {
+#if defined(_WIN32)
+    Result<std::vector<char> > data = ReadBinaryFile(path);
+    if (!data.IsOk()) {
+        return Result<void>(data.GetCode(), data.GetMessage());
+    }
+    std::uint64_t checksum = 0;
+    for (std::size_t index = 0; index < data.Value().size(); index += 4096) {
+        checksum += static_cast<unsigned char>(data.Value()[index]);
+    }
+    if (image_bytes != NULL) {
+        *image_bytes = data.Value().size();
+    }
+    if (rolling_checksum != NULL) {
+        *rolling_checksum = checksum;
+    }
     return foundation::base::MakeSuccess();
+#else
+    PosixMappedRegion region;
+    Result<void> map_result = OpenAndMapFile(path, false, 0, &region);
+    if (!map_result.IsOk()) {
+        return map_result;
+    }
+
+    const unsigned char* bytes = static_cast<const unsigned char*>(region.address);
+    std::uint64_t checksum = 0;
+    for (std::size_t index = 0; index < region.size; index += 4096) {
+        checksum += bytes[index];
+    }
+    if (region.size > 0) {
+        checksum += bytes[region.size - 1];
+    }
+
+    if (image_bytes != NULL) {
+        *image_bytes = region.size;
+    }
+    if (rolling_checksum != NULL) {
+        *rolling_checksum = checksum;
+    }
+    CloseMappedRegion(&region, false);
+    return foundation::base::MakeSuccess();
+#endif
 }
 
 std::uint64_t NowMs() {

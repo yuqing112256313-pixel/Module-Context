@@ -96,6 +96,8 @@ Result<void> WriteScenarioSummary(
     int target_rate,
     int simulate_process_ms,
     std::size_t image_bytes,
+    const std::string& io_mode,
+    bool materialize_output,
     const std::string& image_dir,
     const std::string& result_dir,
     const std::string& notes) {
@@ -106,6 +108,8 @@ Result<void> WriteScenarioSummary(
     output << "target_rate=" << target_rate << "\n";
     output << "simulate_process_ms=" << simulate_process_ms << "\n";
     output << "image_bytes=" << image_bytes << "\n";
+    output << "io_mode=" << io_mode << "\n";
+    output << "materialize_output=" << (materialize_output ? 1 : 0) << "\n";
     output << "image_dir=" << image_dir << "\n";
     output << "result_dir=" << result_dir << "\n";
     output << "notes=" << notes << "\n";
@@ -256,6 +260,11 @@ int main(int argc, char** argv) {
         args.find("scenario-id") == args.end() ? DefaultScenarioId() : args.find("scenario-id")->second;
     const std::string notes =
         args.find("notes") == args.end() ? std::string() : args.find("notes")->second;
+    const std::string io_mode =
+        args.find("io-mode") == args.end() ? std::string("stream") : args.find("io-mode")->second;
+    const bool use_mmap = io_mode == "mmap";
+    const bool materialize_output =
+        args.find("materialize-output") == args.end() ? false : (args.find("materialize-output")->second == "1" || args.find("materialize-output")->second == "true");
 
     Result<void> ensure_image_dir = EnsureDirectory(image_dir.Value());
     Result<void> ensure_report_dir = EnsureDirectory(report_dir.Value());
@@ -346,6 +355,8 @@ int main(int argc, char** argv) {
         target_rate,
         simulate_process_ms,
         image_bytes,
+        io_mode,
+        materialize_output,
         image_dir.Value(),
         report_dir.Value(),
         notes);
@@ -361,7 +372,9 @@ int main(int argc, char** argv) {
               << ", task_count=" << task_count
               << ", workers=" << worker_count
               << ", target_rate=" << target_rate << "/s"
-              << ", image_bytes=" << image_bytes << std::endl;
+              << ", image_bytes=" << image_bytes
+              << ", io_mode=" << io_mode
+              << ", materialize_output=" << (materialize_output ? 1 : 0) << std::endl;
 
     const std::chrono::steady_clock::time_point publish_anchor = std::chrono::steady_clock::now();
     const double interval_ms = target_rate > 0 ? (1000.0 / static_cast<double>(target_rate)) : 0.0;
@@ -389,7 +402,7 @@ int main(int argc, char** argv) {
         metrics.image_path = image_path;
         metrics.image_bytes = image_bytes;
         metrics.image_write_start_ts_ms = NowMs();
-        Result<void> image_result = WriteLargePseudoImage(image_path, image_bytes, index + 17);
+        Result<void> image_result = WriteLargePseudoImage(image_path, image_bytes, index + 17, use_mmap);
         metrics.image_write_done_ts_ms = NowMs();
         if (!image_result.IsOk()) {
             std::cerr << "perf master failed to write image '" << image_path

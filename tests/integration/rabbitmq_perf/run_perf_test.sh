@@ -36,6 +36,8 @@ TIMEOUT_MS="${MC_TIMEOUT_MS:-600000}"
 IDLE_TIMEOUT_MS="${MC_IDLE_TIMEOUT_MS:-5000}"
 KEEP_ENV="${MC_KEEP_ENV:-1}"
 RECREATE_RUNTIME="${MC_RECREATE_RUNTIME:-1}"
+IO_MODE="${MC_IO_MODE:-stream}"
+MATERIALIZE_OUTPUT="${MC_MATERIALIZE_OUTPUT:-0}"
 NOTES="${MC_NOTES:-单机 macOS + Colima + Docker + RabbitMQ，5 个 worker 进程竞争同一任务队列；图片处理耗时为模拟 sleep。}"
 
 IMAGE_DIR="$RUNTIME_DIR/shared/images"
@@ -151,6 +153,8 @@ for index in $(seq 1 "$WORKER_COUNT"); do
     --timeout-ms "$TIMEOUT_MS" \
     --idle-timeout-ms "$IDLE_TIMEOUT_MS" \
     --cleanup-inputs 1 \
+    --io-mode "$IO_MODE" \
+    --materialize-output "$MATERIALIZE_OUTPUT" \
     --stop-file "$STOP_FILE" >"$worker_log" 2>&1 &
   WORKER_PIDS+=("$!")
 done
@@ -169,6 +173,8 @@ echo "[run] launching master benchmark"
   --image-bytes "$IMAGE_BYTES" \
   --simulate-process-ms "$SIMULATE_PROCESS_MS" \
   --timeout-ms "$TIMEOUT_MS" \
+  --io-mode "$IO_MODE" \
+  --materialize-output "$MATERIALIZE_OUTPUT" \
   --notes "$NOTES" >"$MASTER_LOG" 2>&1
 
 touch "$STOP_FILE"
