@@ -61,6 +61,7 @@
 
 ### 环境拓扑
 - 单机 macOS 本地测试
+- 测试主机: **Apple M4 Max**, **36GB RAM**, **14 CPU 核心**
 - RabbitMQ 跑在 Colima + Docker 中
 - 1 个 master 进程 + 5 个 worker 进程，全都在同一台机器上
 - RabbitMQ 仅承担轻量控制消息
@@ -110,6 +111,8 @@
 ### C. 优化后 mmap
 - 场景: `build/tests/rabbitmq_perf_runtime_mmap_cmp`
 - 成功率: **60 / 60**
+- 发布窗口: **8.56s**
+- 完成窗口: **8.317s**
 - 发布吞吐: **7.01 张/秒**
 - 完成吞吐: **7.21 张/秒**
 - `image_write_p50 / p95`: **19 / 20.05 ms**
