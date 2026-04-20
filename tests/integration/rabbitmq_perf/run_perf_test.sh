@@ -14,8 +14,15 @@ COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
 BOOTSTRAP_SCRIPT="$SCRIPT_DIR/bootstrap_rabbitmq.sh"
 MONITOR_SCRIPT="$SCRIPT_DIR/monitor_perf.py"
 REPORT_SCRIPT="$SCRIPT_DIR/generate_perf_report.py"
+ENV_FILE="${MC_INTEGRATION_ENV_FILE:-$SCRIPT_DIR/../integration.defaults.env}"
+
+if [[ -f "$ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+fi
 
 RABBITMQ_API_URL="${RABBITMQ_API_URL:-http://127.0.0.1:15673/api}"
+RABBITMQ_PORT="${RABBITMQ_PORT:-5673}"
 RABBITMQ_ADMIN_USER="${RABBITMQ_ADMIN_USER:-mc_perf_admin}"
 RABBITMQ_ADMIN_PASS="${RABBITMQ_ADMIN_PASS:-mc_perf_admin_secret}"
 RABBITMQ_MASTER_USER="${RABBITMQ_MASTER_USER:-mc_perf_master}"
@@ -24,8 +31,8 @@ RABBITMQ_WORKER_USER="${RABBITMQ_WORKER_USER:-mc_perf_worker}"
 RABBITMQ_WORKER_PASS="${RABBITMQ_WORKER_PASS:-perf_worker_secret}"
 RABBITMQ_VHOST="${RABBITMQ_VHOST:-mc_perf}"
 
-MASTER_URI="amqp://${RABBITMQ_MASTER_USER}:${RABBITMQ_MASTER_PASS}@127.0.0.1:5673/${RABBITMQ_VHOST}"
-WORKER_URI="amqp://${RABBITMQ_WORKER_USER}:${RABBITMQ_WORKER_PASS}@127.0.0.1:5673/${RABBITMQ_VHOST}"
+MASTER_URI="amqp://${RABBITMQ_MASTER_USER}:${RABBITMQ_MASTER_PASS}@127.0.0.1:${RABBITMQ_PORT}/${RABBITMQ_VHOST}"
+WORKER_URI="amqp://${RABBITMQ_WORKER_USER}:${RABBITMQ_WORKER_PASS}@127.0.0.1:${RABBITMQ_PORT}/${RABBITMQ_VHOST}"
 SCENARIO_ID="${MC_SCENARIO_ID:-perf-$(date +%Y%m%d-%H%M%S)}"
 WORKER_COUNT="${MC_WORKER_COUNT:-5}"
 TASK_COUNT="${MC_TASK_COUNT:-120}"
@@ -36,6 +43,7 @@ TIMEOUT_MS="${MC_TIMEOUT_MS:-600000}"
 IDLE_TIMEOUT_MS="${MC_IDLE_TIMEOUT_MS:-5000}"
 KEEP_ENV="${MC_KEEP_ENV:-1}"
 RECREATE_RUNTIME="${MC_RECREATE_RUNTIME:-1}"
+RABBITMQ_ENV_MODE="${MC_RABBITMQ_ENV:-auto}"
 IO_MODE="${MC_IO_MODE:-stream}"
 MATERIALIZE_OUTPUT="${MC_MATERIALIZE_OUTPUT:-0}"
 MASTER_WRITER_THREADS="${MC_MASTER_WRITER_THREADS:-4}"
@@ -82,6 +90,38 @@ compose() {
   return 127
 }
 
+compose_available() {
+  if [[ -n "${MC_COMPOSE_BIN:-}" ]]; then
+    return 0
+  fi
+
+  if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if command -v docker-compose >/dev/null 2>&1; then
+    return 0
+  fi
+
+  return 1
+}
+
+USE_COMPOSE="1"
+if [[ "$RABBITMQ_ENV_MODE" == "external" ]]; then
+  USE_COMPOSE="0"
+elif [[ "$RABBITMQ_ENV_MODE" == "compose" ]]; then
+  USE_COMPOSE="1"
+elif [[ "$RABBITMQ_ENV_MODE" == "auto" ]]; then
+  if compose_available; then
+    USE_COMPOSE="1"
+  else
+    USE_COMPOSE="0"
+  fi
+else
+  echo "[error] unsupported MC_RABBITMQ_ENV=$RABBITMQ_ENV_MODE (expected: auto|compose|external)" >&2
+  exit 2
+fi
+
 cleanup() {
   local exit_code=$?
   touch "$STOP_FILE" >/dev/null 2>&1 || true
@@ -99,7 +139,11 @@ cleanup() {
 
   if [[ $exit_code -ne 0 ]]; then
     echo "[run] perf test failed, dumping recent logs..." >&2
-    compose logs --no-color || true
+    if [[ "$USE_COMPOSE" == "1" ]]; then
+      compose logs --no-color || true
+    else
+      echo "[run] external RabbitMQ mode: compose logs unavailable" >&2
+    fi
     for log_file in "$MASTER_LOG" "$MONITOR_LOG" "$LOG_DIR"/worker-*.log; do
       [[ -f "$log_file" ]] || continue
       echo "--- $log_file ---" >&2
@@ -107,9 +151,11 @@ cleanup() {
     done
   fi
 
-  if [[ "$KEEP_ENV" == "0" ]]; then
+  if [[ "$KEEP_ENV" == "0" && "$USE_COMPOSE" == "1" ]]; then
     echo "[run] MC_KEEP_ENV=0, cleaning compose resources" >&2
     compose down -v --remove-orphans >/dev/null 2>&1 || true
+  elif [[ "$KEEP_ENV" == "0" ]]; then
+    echo "[run] MC_KEEP_ENV=0 but external RabbitMQ mode, compose resources unchanged" >&2
   else
     echo "[run] environment kept for inspection" >&2
     echo "[run] status:  bash $SCRIPT_DIR/show_perf_status.sh $RUNTIME_DIR" >&2
@@ -125,8 +171,12 @@ mkdir -p "$IMAGE_DIR" "$WORKER_OUTPUT_DIR" "$REPORT_DIR" "$LOG_DIR" "$MONITOR_DI
 rm -f "$STOP_FILE"
 
 echo "[run] runtime dir: $RUNTIME_DIR"
-echo "[run] starting RabbitMQ perf environment"
-compose up -d
+if [[ "$USE_COMPOSE" == "1" ]]; then
+  echo "[run] starting RabbitMQ perf environment"
+  compose up -d
+else
+  echo "[run] using external RabbitMQ (MC_RABBITMQ_ENV=$RABBITMQ_ENV_MODE)"
+fi
 
 echo "[run] bootstrapping RabbitMQ perf topology"
 RABBITMQ_API_URL="$RABBITMQ_API_URL" \

@@ -12,6 +12,12 @@ RUNTIME_DIR="$3"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
 BOOTSTRAP_SCRIPT="$SCRIPT_DIR/bootstrap_rabbitmq.sh"
+ENV_FILE="${MC_INTEGRATION_ENV_FILE:-$SCRIPT_DIR/../integration.defaults.env}"
+
+if [[ -f "$ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+fi
 
 RABBITMQ_ADMIN_USER="${RABBITMQ_ADMIN_USER:-mc_admin}"
 RABBITMQ_ADMIN_PASS="${RABBITMQ_ADMIN_PASS:-mc_admin_secret}"
@@ -31,6 +37,7 @@ MASTER_LOG="$RUNTIME_DIR/master.log"
 WORKER_LOG="$RUNTIME_DIR/worker.log"
 KEEP_ENV="${MC_KEEP_ENV:-1}"
 RECREATE_RUNTIME="${MC_RECREATE_RUNTIME:-1}"
+RABBITMQ_ENV_MODE="${MC_RABBITMQ_ENV:-auto}"
 
 compose() {
   if [[ -n "${MC_COMPOSE_BIN:-}" ]]; then
@@ -52,18 +59,56 @@ compose() {
   return 127
 }
 
+compose_available() {
+  if [[ -n "${MC_COMPOSE_BIN:-}" ]]; then
+    return 0
+  fi
+
+  if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if command -v docker-compose >/dev/null 2>&1; then
+    return 0
+  fi
+
+  return 1
+}
+
+USE_COMPOSE="1"
+if [[ "$RABBITMQ_ENV_MODE" == "external" ]]; then
+  USE_COMPOSE="0"
+elif [[ "$RABBITMQ_ENV_MODE" == "compose" ]]; then
+  USE_COMPOSE="1"
+elif [[ "$RABBITMQ_ENV_MODE" == "auto" ]]; then
+  if compose_available; then
+    USE_COMPOSE="1"
+  else
+    USE_COMPOSE="0"
+  fi
+else
+  echo "[error] unsupported MC_RABBITMQ_ENV=$RABBITMQ_ENV_MODE (expected: auto|compose|external)" >&2
+  exit 2
+fi
+
 cleanup() {
   local exit_code=$?
   if [[ $exit_code -ne 0 ]]; then
     echo "[run] task-flow test failed, dumping RabbitMQ logs..." >&2
-    compose logs --no-color || true
+    if [[ "$USE_COMPOSE" == "1" ]]; then
+      compose logs --no-color || true
+    else
+      echo "[run] external RabbitMQ mode: compose logs unavailable" >&2
+    fi
     [[ -f "$MASTER_LOG" ]] && { echo "--- master.log ---" >&2; cat "$MASTER_LOG" >&2; }
     [[ -f "$WORKER_LOG" ]] && { echo "--- worker.log ---" >&2; cat "$WORKER_LOG" >&2; }
   fi
 
-  if [[ "$KEEP_ENV" == "0" ]]; then
+  if [[ "$KEEP_ENV" == "0" && "$USE_COMPOSE" == "1" ]]; then
     echo "[run] MC_KEEP_ENV=0, cleaning compose resources" >&2
     compose down -v --remove-orphans >/dev/null 2>&1 || true
+  elif [[ "$KEEP_ENV" == "0" ]]; then
+    echo "[run] MC_KEEP_ENV=0 but external RabbitMQ mode, compose resources unchanged" >&2
   else
     echo "[run] environment kept for inspection" >&2
     echo "[run] status:  bash $SCRIPT_DIR/show_task_flow_status.sh $RUNTIME_DIR" >&2
@@ -78,8 +123,12 @@ fi
 mkdir -p "$IMAGE_DIR" "$RESULT_DIR"
 
 echo "[run] using runtime dir: $RUNTIME_DIR"
-echo "[run] starting RabbitMQ compose environment"
-compose up -d
+if [[ "$USE_COMPOSE" == "1" ]]; then
+  echo "[run] starting RabbitMQ compose environment"
+  compose up -d
+else
+  echo "[run] using external RabbitMQ (MC_RABBITMQ_ENV=$RABBITMQ_ENV_MODE)"
+fi
 echo "[run] bootstrapping RabbitMQ accounts, vhost, topology"
 RABBITMQ_ADMIN_USER="$RABBITMQ_ADMIN_USER" \
 RABBITMQ_ADMIN_PASS="$RABBITMQ_ADMIN_PASS" \
