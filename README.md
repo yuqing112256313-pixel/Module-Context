@@ -217,3 +217,36 @@ foundation::base::Result<module_context::messaging::IMessageBusService*> bus =
 - `examples/basic_context_lifecycle.cpp`：最小上下文生命周期示例。
 - `examples/module_config.sample.json`：模块配置示例。
 - `tests/`：覆盖生命周期、配置解析、插件集成和 RabbitMQ 模块行为。
+
+### Integration（RabbitMQ 真环境）测试
+
+可使用一键脚本完成“构建 + 启动 RabbitMQ + 运行 integration 测试”：
+
+```bash
+bash tests/integration/run_integration_tests.sh all
+```
+
+Windows（PowerShell）可使用：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tests/integration/run_integration_tests.ps1 -Suite all
+```
+
+也支持仅执行某个场景：
+
+```bash
+bash tests/integration/run_integration_tests.sh task-flow
+bash tests/integration/run_integration_tests.sh perf
+```
+
+说明：
+
+- 脚本默认使用 `build/` 作为构建目录，并自动开启 `MC_BUILD_TESTS=ON` 与 `MC_BUILD_REAL_RABBITMQ_TESTS=ON`。
+- 默认 `MC_RABBITMQ_ENV=auto`：优先使用 compose；若 compose 不可用但本地 RabbitMQ Management API 可达，则自动切换为 `external`（适用于离线 Windows 实机）。
+- 常用环境变量：`MC_BUILD_DIR`、`MC_COMPOSE_BIN`、`MC_KEEP_ENV`、`MC_SKIP_CONFIGURE`、`MC_SKIP_BUILD`、`MC_RABBITMQ_ENV`、`RABBITMQ_API_URL`、`RABBITMQ_ADMIN_USER`、`RABBITMQ_ADMIN_PASS`。
+- 推荐在 `tests/integration/integration.defaults.env` 统一修改测试参数（账号、vhost、并发、速率等显式集中在一处）。
+
+离线 Windows 实机（预装 RabbitMQ）建议先阅读：
+
+- [docs/integration_windows_offline.md](docs/integration_windows_offline.md)
+- 在线打离线包命令：`bash scripts/package_windows_offline_bundle.sh`
